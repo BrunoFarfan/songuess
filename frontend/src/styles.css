@@ -204,11 +204,49 @@ fieldset {
   border-bottom: 1px solid var(--line);
 }
 legend,
-.range-heading h2 {
+.range-heading h2,
+.origin-section > label {
   padding: 0;
   font-family: "Fraunces Variable", serif;
   font-size: 1.15rem;
   font-weight: 620;
+}
+.origin-section {
+  display: grid;
+  grid-template-columns: auto minmax(10rem, 1fr);
+  align-items: center;
+  gap: 1rem;
+  padding: 1.2rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.origin-select-wrap {
+  position: relative;
+}
+.origin-select-wrap select {
+  width: 100%;
+  min-height: 2.8rem;
+  padding: 0.65rem 2.4rem 0.65rem 0.8rem;
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 0.2rem;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.02);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.origin-select-wrap select:focus-visible {
+  outline: 3px solid var(--mint);
+  outline-offset: 3px;
+}
+.origin-select-wrap > span {
+  position: absolute;
+  top: 50%;
+  right: 0.85rem;
+  color: var(--accent);
+  font-size: 0.8rem;
+  pointer-events: none;
+  transform: translateY(-50%);
 }
 .genre-grid {
   display: flex;
@@ -1275,7 +1313,8 @@ legend,
     flex-direction: column;
   }
   .setup-controls > fieldset,
-  .setup-controls > .range-section {
+  .setup-controls > .range-section,
+  .setup-controls > .origin-section {
     display: flex;
     min-height: 6rem;
     flex: 1 1 0;

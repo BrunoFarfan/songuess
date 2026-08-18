@@ -29,10 +29,24 @@ CREATE TABLE IF NOT EXISTS song_genres (
     PRIMARY KEY (song_id, genre_id)
 );
 
+CREATE TABLE IF NOT EXISTS countries (
+    id INTEGER PRIMARY KEY,
+    code TEXT NOT NULL UNIQUE CHECK (
+        length(code) = 2 AND code = upper(code)
+    )
+);
+
+CREATE TABLE IF NOT EXISTS song_countries (
+    song_id INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+    country_id INTEGER NOT NULL REFERENCES countries(id) ON DELETE CASCADE,
+    PRIMARY KEY (song_id, country_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_songs_eligibility
     ON songs(enabled, release_year, popularity_score);
 CREATE INDEX IF NOT EXISTS idx_song_genres_genre_song
     ON song_genres(genre_id, song_id);
+CREATE INDEX IF NOT EXISTS idx_song_countries_country_song
+    ON song_countries(country_id, song_id);
 CREATE INDEX IF NOT EXISTS idx_songs_search
     ON songs(title COLLATE NOCASE, artist COLLATE NOCASE);
-

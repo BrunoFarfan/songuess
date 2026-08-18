@@ -228,6 +228,71 @@ def fetch_musicbrainz_metadata(
         connection.close()
 
 
+def fetch_musicbrainz_artist_countries(
+    cache_dir: Path,
+    recordings: dict[str, dict[str, Any]],
+    *,
+    batch_size: int = 20,
+    request_json: Callable[[str], dict[str, Any]] = read_json,
+) -> dict[str, list[str]]:
+    """Return explicit MusicBrainz country codes for every credited artist per recording."""
+    cache_path = cache_dir / "musicbrainz-recordings.sqlite3"
+    connection = _musicbrainz_cache_connection(cache_path)
+    try:
+        artist_ids = list(
+            dict.fromkeys(
+                artist_id
+                for recording in recordings.values()
+                for artist_id in _credited_artist_ids(recording)
+            )
+        )
+        artists = _read_musicbrainz_artists_cache(connection, artist_ids)
+        missing = [artist_id for artist_id in artist_ids if artist_id not in artists]
+        print(
+            f"  MusicBrainz artists cached {len(artists):,}; missing {len(missing):,}",
+            flush=True,
+        )
+
+        for index in range(0, len(missing), batch_size):
+            batch = missing[index : index + batch_size]
+            query = "arid:(" + " OR ".join(batch) + ")"
+            parameters = urllib.parse.urlencode({"query": query, "fmt": "json", "limit": 100})
+            payload = request_json(f"https://musicbrainz.org/ws/2/artist/?{parameters}")
+            found = {artist["id"]: artist for artist in payload.get("artists", [])}
+            fetched_at = time.time()
+            with connection:
+                for artist_id in batch:
+                    value = found.get(artist_id, {})
+                    connection.execute(
+                        "INSERT INTO artists (mbid, payload_json, fetched_at) VALUES (?, ?, ?) "
+                        "ON CONFLICT(mbid) DO UPDATE SET payload_json=excluded.payload_json, "
+                        "fetched_at=excluded.fetched_at",
+                        (artist_id, json.dumps(value, ensure_ascii=False), fetched_at),
+                    )
+                    artists[artist_id] = value
+            completed = min(index + batch_size, len(missing))
+            if completed % 200 == 0 or completed == len(missing):
+                print(
+                    f"  MusicBrainz fetched {completed:,}/{len(missing):,} missing artists",
+                    flush=True,
+                )
+            if completed < len(missing):
+                time.sleep(1.05)
+
+        return {
+            recording_mbid: sorted(
+                {
+                    country
+                    for artist_id in _credited_artist_ids(recording)
+                    if (country := _musicbrainz_country(artists.get(artist_id, {})))
+                }
+            )
+            for recording_mbid, recording in recordings.items()
+        }
+    finally:
+        connection.close()
+
+
 def search_apple_track(
     cache_dir: Path,
     candidate: dict[str, Any],
@@ -430,6 +495,10 @@ def _musicbrainz_cache_connection(path: Path) -> sqlite3.Connection:
         "CREATE TABLE IF NOT EXISTS recordings ("
         "mbid TEXT PRIMARY KEY, payload_json TEXT NOT NULL, fetched_at REAL NOT NULL)"
     )
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS artists ("
+        "mbid TEXT PRIMARY KEY, payload_json TEXT NOT NULL, fetched_at REAL NOT NULL)"
+    )
     return connection
 
 
@@ -466,6 +535,40 @@ def _read_musicbrainz_cache(
         ).fetchall()
         result.update({str(row[0]): json.loads(row[1]) for row in rows})
     return result
+
+
+def _read_musicbrainz_artists_cache(
+    connection: sqlite3.Connection, artist_ids: list[str]
+) -> dict[str, dict[str, Any]]:
+    if not artist_ids:
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    for index in range(0, len(artist_ids), 800):
+        batch = artist_ids[index : index + 800]
+        placeholders = ",".join("?" for _ in batch)
+        rows = connection.execute(
+            f"SELECT mbid, payload_json FROM artists WHERE mbid IN ({placeholders})", batch
+        ).fetchall()
+        result.update({str(row[0]): json.loads(row[1]) for row in rows})
+    return result
+
+
+def _credited_artist_ids(recording: dict[str, Any]) -> list[str]:
+    return [
+        str(artist_id)
+        for credit in recording.get("artist-credit", [])
+        if (artist_id := credit.get("artist", {}).get("id"))
+    ]
+
+
+def _musicbrainz_country(artist: dict[str, Any]) -> str | None:
+    country = artist.get("country")
+    if not isinstance(country, str):
+        return None
+    normalized = country.strip().upper()
+    if len(normalized) != 2 or not normalized.isalpha():
+        return None
+    return normalized
 
 
 def _read_apple_match_cache(

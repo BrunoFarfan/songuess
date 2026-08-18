@@ -28,6 +28,20 @@ def choose_round(connection: sqlite3.Connection, request: RoundRequest) -> Round
         )
         parameters.extend(normalized_genres)
 
+    normalized_countries = sorted(
+        {country.strip().upper() for country in request.countries if country.strip()}
+    )
+    if normalized_countries:
+        placeholders = ", ".join("?" for _ in normalized_countries)
+        clauses.append(
+            "EXISTS ("
+            "SELECT 1 FROM song_countries sc "
+            "JOIN countries c ON c.id = sc.country_id "
+            f"WHERE sc.song_id = s.id AND c.code IN ({placeholders})"
+            ")"
+        )
+        parameters.extend(normalized_countries)
+
     excluded_ids = sorted({song_id for song_id in request.exclude_ids if song_id > 0})
     if excluded_ids:
         placeholders = ", ".join("?" for _ in excluded_ids)
@@ -120,8 +134,15 @@ def get_filter_metadata(connection: sqlite3.Connection) -> FilterMetadata:
         "JOIN songs s ON s.id = sg.song_id "
         "WHERE s.enabled = 1 ORDER BY g.name COLLATE NOCASE"
     ).fetchall()
+    country_rows = connection.execute(
+        "SELECT DISTINCT c.code FROM countries c "
+        "JOIN song_countries sc ON sc.country_id = c.id "
+        "JOIN songs s ON s.id = sc.song_id "
+        "WHERE s.enabled = 1 ORDER BY c.code"
+    ).fetchall()
     return FilterMetadata(
         genres=[row["name"] for row in genre_rows],
+        countries=[row["code"] for row in country_rows],
         year_min=summary["year_min"],
         year_max=summary["year_max"],
         popularity_min=0,

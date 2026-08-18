@@ -75,6 +75,11 @@ performs idempotent upserts deduplicated by both MusicBrainz and Apple IDs. Cach
 matches expire, transient preview failures remain retryable, and popularity is normalized over the
 entire enabled catalog. No decade quotas or weights are applied.
 
+Artist-origin countries come only from the explicit `country` field on every credited MusicBrainz
+artist. Songs may have multiple origins through normalized `countries` and `song_countries` tables;
+missing country metadata remains missing. Run `just backfill-countries` from `backend/` to resumably
+attach countries to an existing catalog without changing songs or popularity rankings.
+
 Use `just populate --help` for custom totals and ranges. `just snapshot-catalog <path>` records the
 current identities, while `just verify-catalog --target-total <count> --preserve-snapshot <path>`
 checks exact totals, preservation, unique IDs, previews, and the unmodified year distribution. The

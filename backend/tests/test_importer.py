@@ -8,6 +8,7 @@ import pytest
 from dataset import clients
 from dataset.populate import (
     Progress,
+    backfill_catalog_countries,
     catalog_state,
     import_until_target,
     initialize_database,
@@ -68,6 +69,7 @@ def test_target_total_adds_only_the_gap_and_preserves_existing(
         database,
         cache,
         candidates,
+        {},
         {},
         country="US",
         year_min=1950,
@@ -192,3 +194,129 @@ def test_negative_apple_match_cache_expires(tmp_path: Path) -> None:
     clients._write_apple_match_cache(path, None, checked_at=100)
     assert clients._read_apple_match_cache(path, 300, now=200) == (True, None, False)
     assert clients._read_apple_match_cache(path, 300, now=401) == (False, None, True)
+
+
+def test_musicbrainz_artist_countries_are_multi_value_explicit_and_resumable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recordings = {
+        "recording": {
+            "artist-credit": [
+                {"artist": {"id": "artist-a"}},
+                {"artist": {"id": "artist-b"}},
+                {"artist": {"id": "artist-c"}},
+            ]
+        }
+    }
+    calls: list[str] = []
+
+    def interrupted_request(url: str) -> dict[str, Any]:
+        calls.append(url)
+        if len(calls) == 2:
+            raise RuntimeError("interrupted")
+        return {"artists": [{"id": "artist-a", "country": "US"}]}
+
+    monkeypatch.setattr(clients.time, "sleep", lambda seconds: None)
+    with pytest.raises(RuntimeError, match="interrupted"):
+        clients.fetch_musicbrainz_artist_countries(
+            tmp_path,
+            recordings,
+            batch_size=1,
+            request_json=interrupted_request,
+        )
+
+    resumed_calls: list[str] = []
+
+    def resumed_request(url: str) -> dict[str, Any]:
+        resumed_calls.append(url)
+        if "artist-b" in url:
+            return {"artists": [{"id": "artist-b", "country": "GB"}]}
+        return {"artists": [{"id": "artist-c"}]}
+
+    countries = clients.fetch_musicbrainz_artist_countries(
+        tmp_path,
+        recordings,
+        batch_size=1,
+        request_json=resumed_request,
+    )
+    assert countries == {"recording": ["GB", "US"]}
+    assert len(resumed_calls) == 2
+    assert all("artist-a" not in url for url in resumed_calls)
+
+
+def test_write_catalog_normalizes_multiple_countries_and_never_infers_missing(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "catalog.sqlite3"
+    initialize_database(database)
+    songs = [_match("multi", 1), _match("unknown", 2)]
+
+    write_catalog(
+        database,
+        songs,
+        {},
+        countries_by_recording={"multi": ["us", "GB", "US"], "unknown": []},
+    )
+    write_catalog(
+        database,
+        songs,
+        {},
+        countries_by_recording={"multi": ["GB", "US"], "unknown": []},
+    )
+
+    with sqlite3.connect(database) as connection:
+        rows = connection.execute(
+            "SELECT s.musicbrainz_id, c.code FROM songs s "
+            "LEFT JOIN song_countries sc ON sc.song_id = s.id "
+            "LEFT JOIN countries c ON c.id = sc.country_id "
+            "ORDER BY s.musicbrainz_id, c.code"
+        ).fetchall()
+    assert rows == [("multi", "GB"), ("multi", "US"), ("unknown", None)]
+
+
+def test_country_backfill_is_idempotent_and_preserves_song_ranking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = tmp_path / "catalog.sqlite3"
+    initialize_database(database)
+    write_catalog(database, [_match("existing", 1, listen_count=987)], {})
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE songs SET popularity_score = 73 WHERE musicbrainz_id = 'existing'"
+        )
+        before = connection.execute(
+            "SELECT title, artist, listen_count, popularity_score, enabled "
+            "FROM songs WHERE musicbrainz_id = 'existing'"
+        ).fetchone()
+
+    metadata_calls: list[list[dict[str, Any]]] = []
+    country_calls: list[dict[str, dict[str, Any]]] = []
+
+    def fake_metadata(cache_dir: Path, candidates: list[dict[str, Any]]) -> dict[str, Any]:
+        metadata_calls.append(candidates)
+        return {"existing": {"artist-credit": [{"artist": {"id": "artist"}}]}}
+
+    def fake_countries(cache_dir: Path, metadata: dict[str, Any]) -> dict[str, list[str]]:
+        country_calls.append(metadata)
+        return {"existing": ["CL"]}
+
+    monkeypatch.setattr("dataset.populate.fetch_musicbrainz_metadata", fake_metadata)
+    monkeypatch.setattr("dataset.populate.fetch_musicbrainz_artist_countries", fake_countries)
+
+    backfill_catalog_countries(database, tmp_path / "cache", batch_size=1)
+    backfill_catalog_countries(database, tmp_path / "cache", batch_size=1)
+
+    with sqlite3.connect(database) as connection:
+        after = connection.execute(
+            "SELECT title, artist, listen_count, popularity_score, enabled "
+            "FROM songs WHERE musicbrainz_id = 'existing'"
+        ).fetchone()
+        countries = connection.execute(
+            "SELECT c.code FROM countries c "
+            "JOIN song_countries sc ON sc.country_id = c.id "
+            "JOIN songs s ON s.id = sc.song_id WHERE s.musicbrainz_id = 'existing'"
+        ).fetchall()
+    assert after == before
+    assert countries == [("CL",)]
+    assert len(metadata_calls) == 1
+    assert len(country_calls) == 1

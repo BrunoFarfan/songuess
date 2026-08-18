@@ -20,6 +20,10 @@ dev:
 populate *args:
   cd .. && uv run --project backend python -m dataset.populate {{args}}
 
+# Resumably backfill explicit MusicBrainz countries for existing credited artists.
+backfill-countries:
+  cd .. && uv run --project backend python -m dataset.populate --backfill-countries
+
 # Snapshot enabled catalog identities before a population run.
 snapshot-catalog path:
   cd .. && uv run --project backend python -m dataset.verify --snapshot {{path}}

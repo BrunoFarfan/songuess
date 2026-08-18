@@ -8,6 +8,7 @@ type RoundOutcome = "correct" | "failed" | "gave_up";
 
 type Filters = {
   genres: string[];
+  countries: string[];
   yearMin: number;
   yearMax: number;
   popularityMin: number;
@@ -16,6 +17,7 @@ type Filters = {
 
 type FilterMetadata = {
   genres: string[];
+  countries: string[];
   year_min: number | null;
   year_max: number | null;
   popularity_min: number;
@@ -45,6 +47,7 @@ type RevealedSong = SearchResult & {
 
 const defaultFilters: Filters = {
   genres: [],
+  countries: [],
   yearMin: 1960,
   yearMax: CURRENT_YEAR,
   popularityMin: 0,
@@ -102,6 +105,7 @@ export default function Game() {
         setMetadata(data);
         const nextFilters: Filters = {
           genres: [],
+          countries: [],
           yearMin: data.year_min ?? 1960,
           yearMax: data.year_max ?? CURRENT_YEAR,
           popularityMin: data.popularity_min,
@@ -261,6 +265,7 @@ export default function Game() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           genres: filters.genres,
+          countries: filters.countries,
           year_min: filters.yearMin,
           year_max: filters.yearMax,
           popularity_min: filters.popularityMin,
@@ -451,7 +456,12 @@ export default function Game() {
         <div className="play-stack">
           <div className="round-topline">
             <span>
-              {activeFilters.genres.length ? activeFilters.genres.join(" · ") : "All genres"}
+              {[
+                activeFilters.genres.length ? activeFilters.genres.join(" · ") : "All genres",
+                activeFilters.countries.length
+                  ? activeFilters.countries.map(countryLabel).join(" · ")
+                  : "All origins",
+              ].join(" — ")}
             </span>
           </div>
 
@@ -718,6 +728,33 @@ function SetupScreen({
           </fieldset>
         )}
 
+        {(metadata === null || metadata.countries.length > 0) && (
+          <div className="origin-section">
+            <label htmlFor="origin-country">Artist origin</label>
+            <div className="origin-select-wrap">
+              <select
+                id="origin-country"
+                value={filters.countries[0] ?? ""}
+                disabled={metadata === null}
+                onChange={(event) =>
+                  onFiltersChange({
+                    ...filters,
+                    countries: event.target.value ? [event.target.value] : [],
+                  })
+                }
+              >
+                <option value="">{metadata === null ? "Loading…" : "Anywhere"}</option>
+                {metadata?.countries.map((country) => (
+                  <option value={country} key={country}>
+                    {countryLabel(country)} · {country}
+                  </option>
+                ))}
+              </select>
+              <span aria-hidden="true">↓</span>
+            </div>
+          </div>
+        )}
+
         <div className="range-section">
           <div className="range-heading">
             <h2>Year</h2>
@@ -763,6 +800,12 @@ function SetupScreen({
       </div>
     </section>
   );
+}
+
+const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+
+function countryLabel(code: string): string {
+  return regionNames.of(code) ?? code;
 }
 
 type VinylProgressProps = {

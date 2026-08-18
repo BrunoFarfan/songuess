@@ -12,6 +12,7 @@ from typing import Any
 from dataset.clients import (
     canonical_genres,
     fetch_listenbrainz_candidates,
+    fetch_musicbrainz_artist_countries,
     fetch_musicbrainz_metadata,
     search_apple_track,
     validate_previews,
@@ -73,6 +74,11 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--recordings-per-artist", type=int, default=60)
     parser.add_argument("--preview-workers", type=int, default=8)
     parser.add_argument("--match-batch-size", type=int, default=64)
+    parser.add_argument(
+        "--backfill-countries",
+        action="store_true",
+        help="Resumably attach explicit MusicBrainz artist countries to existing songs",
+    )
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
     parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE)
     return parser.parse_args(arguments)
@@ -82,6 +88,9 @@ def main() -> None:
     args = parse_args()
     _validate_args(args)
     initialize_database(args.database)
+    if args.backfill_countries:
+        backfill_catalog_countries(args.database, args.cache)
+        return
     initial_state = catalog_state(args.database)
     needed = target_gap(args.database, args.target_total)
     if needed < 0:
@@ -133,6 +142,12 @@ def main() -> None:
         f"estimated candidates remaining: {len(eligible):,}",
         flush=True,
     )
+    eligible_metadata = {
+        candidate["recording_mbid"]: metadata.get(candidate["recording_mbid"], {})
+        for candidate in eligible
+    }
+    print("Fetching explicit MusicBrainz countries for every credited artist...")
+    countries_by_recording = fetch_musicbrainz_artist_countries(args.cache, eligible_metadata)
 
     try:
         import_until_target(
@@ -140,6 +155,7 @@ def main() -> None:
             args.cache,
             eligible,
             metadata,
+            countries_by_recording,
             country=args.country,
             year_min=args.year_min,
             year_max=args.year_max,
@@ -173,6 +189,7 @@ def import_until_target(
     cache_dir: Path,
     candidates: list[dict[str, Any]],
     metadata: dict[str, dict[str, Any]],
+    countries_by_recording: dict[str, list[str]],
     *,
     country: str,
     year_min: int,
@@ -236,7 +253,12 @@ def import_until_target(
                 progress.preview_invalid += 1
 
         selected = validated[:needed]
-        inserted = write_catalog(database_path, selected, metadata)
+        inserted = write_catalog(
+            database_path,
+            selected,
+            metadata,
+            countries_by_recording=countries_by_recording,
+        )
         progress.new_validated_songs += inserted
         if selected:
             recompute_catalog_popularity(database_path)
@@ -301,6 +323,8 @@ def write_catalog(
     database_path: Path,
     songs: list[dict[str, Any]],
     metadata: dict[str, dict[str, Any]],
+    *,
+    countries_by_recording: dict[str, list[str]] | None = None,
 ) -> int:
     enabled_delta = 0
     with sqlite3.connect(database_path) as connection:
@@ -361,11 +385,129 @@ def write_catalog(
                     "INSERT OR IGNORE INTO song_genres (song_id, genre_id) VALUES (?, ?)",
                     (song_id, genre_id),
                 )
+            if countries_by_recording is not None:
+                _replace_song_countries(
+                    connection,
+                    song_id,
+                    countries_by_recording.get(mbid, []),
+                )
         connection.execute(
             "DELETE FROM genres WHERE NOT EXISTS "
             "(SELECT 1 FROM song_genres WHERE genre_id = genres.id)"
         )
+        connection.execute(
+            "DELETE FROM countries WHERE NOT EXISTS "
+            "(SELECT 1 FROM song_countries WHERE country_id = countries.id)"
+        )
     return enabled_delta
+
+
+def backfill_catalog_countries(
+    database_path: Path,
+    cache_dir: Path,
+    *,
+    batch_size: int = 500,
+) -> None:
+    """Attach explicit credited-artist countries without changing song or ranking data."""
+    with sqlite3.connect(database_path) as connection:
+        songs = [
+            (int(row[0]), str(row[1]))
+            for row in connection.execute(
+                "SELECT id, musicbrainz_id FROM songs WHERE musicbrainz_id IS NOT NULL ORDER BY id"
+            )
+        ]
+    progress_connection = _country_backfill_connection(cache_dir)
+    database_key = _database_cache_key(database_path)
+    completed_mbids = {
+        str(row[0])
+        for row in progress_connection.execute(
+            "SELECT recording_mbid FROM completed WHERE database_key = ?", (database_key,)
+        )
+    }
+    pending_songs = [(song_id, mbid) for song_id, mbid in songs if mbid not in completed_mbids]
+    print(
+        f"Backfilling artist-origin countries for {len(songs):,} existing songs; "
+        f"already complete {len(songs) - len(pending_songs):,}; "
+        f"remaining {len(pending_songs):,}...",
+        flush=True,
+    )
+    linked_songs = 0
+    missing_country = 0
+    try:
+        for start in range(0, len(pending_songs), batch_size):
+            batch = pending_songs[start : start + batch_size]
+            candidates = [{"recording_mbid": mbid} for _, mbid in batch]
+            metadata = fetch_musicbrainz_metadata(cache_dir, candidates)
+            countries_by_recording = fetch_musicbrainz_artist_countries(cache_dir, metadata)
+            with sqlite3.connect(database_path) as connection:
+                connection.execute("PRAGMA foreign_keys = ON")
+                for song_id, mbid in batch:
+                    countries = countries_by_recording.get(mbid, [])
+                    _replace_song_countries(connection, song_id, countries)
+                    if countries:
+                        linked_songs += 1
+                    else:
+                        missing_country += 1
+                connection.execute(
+                    "DELETE FROM countries WHERE NOT EXISTS "
+                    "(SELECT 1 FROM song_countries WHERE country_id = countries.id)"
+                )
+            with progress_connection:
+                progress_connection.executemany(
+                    "INSERT OR REPLACE INTO completed "
+                    "(database_key, recording_mbid, completed_at) VALUES (?, ?, ?)",
+                    [(database_key, mbid, time.time()) for _, mbid in batch],
+                )
+            completed = min(start + batch_size, len(pending_songs))
+            print(
+                f"  Country backfill {completed:,}/{len(pending_songs):,} remaining; "
+                f"with explicit country {linked_songs:,}; without {missing_country:,}",
+                flush=True,
+            )
+    finally:
+        progress_connection.close()
+
+
+def _replace_song_countries(
+    connection: sqlite3.Connection,
+    song_id: int,
+    country_codes: list[str],
+) -> None:
+    connection.execute("DELETE FROM song_countries WHERE song_id = ?", (song_id,))
+    normalized_codes = sorted(
+        {
+            normalized
+            for code in country_codes
+            if len(normalized := code.strip().upper()) == 2 and normalized.isalpha()
+        }
+    )
+    for code in normalized_codes:
+        connection.execute("INSERT OR IGNORE INTO countries (code) VALUES (?)", (code,))
+        country_id = connection.execute(
+            "SELECT id FROM countries WHERE code = ?", (code,)
+        ).fetchone()[0]
+        connection.execute(
+            "INSERT OR IGNORE INTO song_countries (song_id, country_id) VALUES (?, ?)",
+            (song_id, country_id),
+        )
+
+
+def _country_backfill_connection(cache_dir: Path) -> sqlite3.Connection:
+    path = cache_dir / "country-backfill.sqlite3"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path, timeout=30)
+    connection.execute("PRAGMA journal_mode = WAL")
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS completed ("
+        "database_key TEXT NOT NULL, recording_mbid TEXT NOT NULL, "
+        "completed_at REAL NOT NULL, PRIMARY KEY (database_key, recording_mbid))"
+    )
+    return connection
+
+
+def _database_cache_key(database_path: Path) -> str:
+    stat = database_path.stat()
+    return f"{database_path.resolve()}:{stat.st_dev}:{stat.st_ino}"
 
 
 def recompute_catalog_popularity(database_path: Path) -> None:
