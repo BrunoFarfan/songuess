@@ -566,38 +566,40 @@ export default function Game() {
                 </section>
               )}
 
-              <nav className="game-actions-dock" aria-label="Round controls">
-                <button
-                  className="dock-side-action dock-reveal"
-                  type="button"
-                  onClick={() => setIsRevealConfirmOpen(true)}
-                >
-                  Reveal
-                </button>
-                <button
-                  className={`dock-play-action${isAudioPlaying ? " is-playing" : ""}`}
-                  type="button"
-                  onClick={toggleSnippetPlayback}
-                  aria-label={isAudioPlaying ? "Pause clue" : "Play clue"}
-                >
-                  {isAudioPlaying ? (
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
-                    </svg>
-                  ) : (
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="m8 5 11 7-11 7V5Z" />
-                    </svg>
-                  )}
-                </button>
-                <button
-                  className="dock-side-action dock-skip"
-                  type="button"
-                  onClick={advanceAttempt}
-                >
-                  Next clue
-                </button>
-              </nav>
+              {searchResults.length === 0 && (
+                <nav className="game-actions-dock" aria-label="Round controls">
+                  <button
+                    className="dock-side-action dock-reveal"
+                    type="button"
+                    onClick={() => setIsRevealConfirmOpen(true)}
+                  >
+                    Reveal
+                  </button>
+                  <button
+                    className={`dock-play-action${isAudioPlaying ? " is-playing" : ""}`}
+                    type="button"
+                    onClick={toggleSnippetPlayback}
+                    aria-label={isAudioPlaying ? "Pause clue" : "Play clue"}
+                  >
+                    {isAudioPlaying ? (
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m8 5 11 7-11 7V5Z" />
+                      </svg>
+                    )}
+                  </button>
+                  <button
+                    className="dock-side-action dock-skip"
+                    type="button"
+                    onClick={advanceAttempt}
+                  >
+                    Next clue
+                  </button>
+                </nav>
+              )}
 
               {isRevealConfirmOpen && (
                 <div
