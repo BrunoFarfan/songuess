@@ -34,6 +34,7 @@ class SongSearchResult(BaseModel):
     id: int
     title: str
     artist: str
+    artwork_url: str | None
 
 
 class SongReveal(BaseModel):

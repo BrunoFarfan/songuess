@@ -566,13 +566,49 @@ legend,
   position: relative;
 }
 .search-field input {
-  padding-right: 5.4rem;
+  padding-right: 3.2rem;
   border-radius: 0;
   background: var(--paper-deep);
 }
+.search-field input::-webkit-search-cancel-button {
+  display: none;
+}
+.search-clear {
+  position: absolute;
+  z-index: 2;
+  top: 1.4rem;
+  right: 0.85rem;
+  display: grid;
+  width: 1.8rem;
+  aspect-ratio: 1;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition:
+    color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+.search-clear:hover {
+  color: var(--paper);
+  background: var(--ink);
+  transform: translateY(-50%) rotate(8deg) scale(1.06);
+}
+.search-clear svg {
+  width: 1.05rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 2.2;
+}
 .search-status {
   position: absolute;
-  right: 0.7rem;
+  right: 3.1rem;
   bottom: 0.9rem;
   color: var(--muted);
   font-size: 0.62rem;
@@ -583,8 +619,14 @@ legend,
   top: calc(100% + 0.35rem);
   right: 0;
   left: 0;
+  max-height: min(18rem, 42vh);
   margin: 0;
   padding: 0.3rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--accent) var(--paper-deep);
+  scrollbar-width: thin;
+  touch-action: pan-y;
   border: 1px solid var(--line);
   border-radius: 0;
   background: var(--paper-deep);
@@ -593,9 +635,11 @@ legend,
 }
 .search-results button {
   display: grid;
+  grid-template-columns: 2.65rem minmax(0, 1fr);
   width: 100%;
-  gap: 0.1rem;
-  padding: 0.65rem 0.7rem;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.45rem;
   border: 0;
   border-radius: 0.4rem;
   text-align: left;
@@ -605,37 +649,83 @@ legend,
 .search-results button:hover {
   background: rgba(255, 255, 255, 0.06);
 }
-.search-results strong {
+.search-results img,
+.result-artwork-placeholder {
+  width: 2.65rem;
+  aspect-ratio: 1;
+  border-radius: 0.15rem;
+  object-fit: cover;
+}
+.result-artwork-placeholder {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  background: repeating-radial-gradient(circle, #282522 0 4px, #171614 5px 8px);
+}
+.result-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.1rem;
+}
+.result-copy strong,
+.result-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.result-copy strong {
   font-size: 0.78rem;
 }
-.search-results span {
+.result-copy small {
   color: var(--muted);
   font-size: 0.68rem;
 }
 .selected-guess {
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.1rem 0.7rem;
-  align-items: baseline;
+  grid-template-columns: 3.6rem minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: center;
   margin-top: 0.75rem;
   padding: 0.75rem;
   border-left: 3px solid var(--mint);
   background: transparent;
 }
-.selected-guess span {
-  grid-row: 1 / 3;
-  align-self: center;
+.selected-guess > img,
+.selected-artwork-placeholder {
+  width: 3.6rem;
+  aspect-ratio: 1;
+  border-radius: 0.15rem;
+  object-fit: cover;
+}
+.selected-artwork-placeholder {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  background: repeating-radial-gradient(circle, #282522 0 5px, #171614 6px 10px);
+}
+.selected-guess div {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+.selected-guess div span {
   color: var(--muted);
   font-size: 0.57rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 .selected-guess strong {
+  overflow: hidden;
   font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .selected-guess small {
+  overflow: hidden;
   color: var(--muted);
   font-size: 0.66rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .primary-action {
   width: 100%;
@@ -646,9 +736,19 @@ legend,
   background: var(--accent);
   font-size: 0.78rem;
   font-weight: 780;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
 }
 .primary-action:hover:not(:disabled) {
   background: #ff856c;
+  box-shadow: -0.35rem 0.35rem 0 var(--ink);
+  transform: translate(0.35rem, -0.35rem);
+}
+.primary-action:active:not(:disabled) {
+  box-shadow: -0.12rem 0.12rem 0 var(--ink);
+  transform: translate(0.12rem, -0.12rem) scale(0.99);
 }
 .primary-action:disabled {
   cursor: not-allowed;
@@ -694,29 +794,31 @@ legend,
   pointer-events: auto;
 }
 .dock-side-action {
-  min-width: 4.25rem;
-  min-height: 2.8rem;
-  padding: 0.65rem 0.8rem;
-  border: 1px solid rgba(244, 239, 229, 0.24);
-  border-radius: 99rem;
-  color: var(--muted);
-  background: rgba(12, 13, 12, 0.88);
-  font-size: 0.68rem;
-  font-weight: 760;
-  backdrop-filter: blur(10px);
+  width: 5rem;
+  aspect-ratio: 1;
+  padding: 0.65rem;
+  border-radius: 50%;
+  color: var(--paper);
+  background: var(--ink);
+  box-shadow: 0 0.8rem 1.8rem rgba(0, 0, 0, 0.38);
+  font-size: 0.64rem;
+  font-weight: 800;
+  line-height: 1.08;
   transition:
-    color 160ms ease,
-    border-color 160ms ease,
-    transform 160ms ease;
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
 }
 .dock-side-action:hover {
-  color: var(--ink);
-  border-color: rgba(244, 239, 229, 0.55);
-  transform: translateY(-2px);
+  background: #fffaf0;
+  box-shadow:
+    -0.3rem 0.3rem 0 var(--accent),
+    0 0.9rem 1.8rem rgba(0, 0, 0, 0.42);
+  transform: translate(0.3rem, -0.3rem);
 }
-.dock-reveal:hover {
-  color: var(--accent-dark);
-  border-color: var(--accent);
+.dock-side-action:active {
+  box-shadow: -0.12rem 0.12rem 0 var(--accent);
+  transform: translate(0.12rem, -0.12rem) scale(0.98);
 }
 .dock-play-action {
   display: grid;
@@ -737,12 +839,16 @@ legend,
 .dock-play-action:hover {
   background: #ff7b60;
   box-shadow:
-    0 0 0 0.7rem rgba(255, 101, 71, 0.13),
+    -0.35rem 0.35rem 0 var(--ink),
+    0 0 0 0.45rem rgba(255, 101, 71, 0.1),
     0 1.2rem 2.6rem rgba(0, 0, 0, 0.55);
-  transform: translateY(-0.28rem) scale(1.04);
+  transform: translate(0.35rem, -0.35rem);
 }
 .dock-play-action:active {
-  transform: scale(0.94);
+  box-shadow:
+    -0.12rem 0.12rem 0 var(--ink),
+    0 0 0 0.3rem rgba(255, 101, 71, 0.1);
+  transform: translate(0.12rem, -0.12rem) scale(0.98);
 }
 .dock-play-action.is-playing {
   box-shadow:

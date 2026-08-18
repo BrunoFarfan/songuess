@@ -56,7 +56,7 @@ def search_songs(
     contains = f"%{_escape_like(normalized_query)}%"
     prefix = f"{_escape_like(normalized_query)}%"
     rows = connection.execute(
-        "SELECT id, title, artist "
+        "SELECT id, title, artist, artwork_url "
         "FROM songs "
         "WHERE enabled = 1 AND preview_url <> '' "
         "AND (lower(title) LIKE ? ESCAPE '\\' OR lower(artist) LIKE ? ESCAPE '\\') "
@@ -71,7 +71,13 @@ def search_songs(
         (contains, contains, normalized_query, prefix, prefix, limit),
     ).fetchall()
     return [
-        SongSearchResult(id=row["id"], title=row["title"], artist=row["artist"]) for row in rows
+        SongSearchResult(
+            id=row["id"],
+            title=row["title"],
+            artist=row["artist"],
+            artwork_url=row["artwork_url"],
+        )
+        for row in rows
     ]
 
 

@@ -32,6 +32,7 @@ type SearchResult = {
   id: number;
   title: string;
   artist: string;
+  artwork_url: string | null;
 };
 
 type RevealedSong = SearchResult & {
@@ -172,6 +173,20 @@ export default function Game() {
   }, [phase, unlockedDuration]);
 
   useEffect(() => {
+    if (!isAudioPlaying) return;
+
+    let animationFrame = 0;
+    const syncPlaybackCursor = () => {
+      const audio = audioRef.current;
+      if (!audio || audio.paused) return;
+      setPlaybackCursor(Math.min(audio.currentTime, unlockedDuration));
+      animationFrame = window.requestAnimationFrame(syncPlaybackCursor);
+    };
+    animationFrame = window.requestAnimationFrame(syncPlaybackCursor);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [isAudioPlaying, unlockedDuration]);
+
+  useEffect(() => {
     if (phase !== "playing" || query.trim().length < 2 || selectedGuess) {
       setSearchResults([]);
       setIsSearching(false);
@@ -295,9 +310,8 @@ export default function Game() {
     if (!audio) return;
     setAudioError("");
     if (audio.currentTime >= unlockedDuration - 0.05) {
-      const segmentStart = attempt === 0 ? 0 : SNIPPET_DURATIONS[attempt - 1];
-      audio.currentTime = segmentStart;
-      setPlaybackCursor(segmentStart);
+      audio.currentTime = 0;
+      setPlaybackCursor(0);
     }
     try {
       await audio.play();
@@ -378,6 +392,12 @@ export default function Game() {
   function selectSearchResult(result: SearchResult) {
     setSelectedGuess(result);
     setQuery(`${result.title} — ${result.artist}`);
+    setSearchResults([]);
+  }
+
+  function clearGuessSearch() {
+    setQuery("");
+    setSelectedGuess(null);
     setSearchResults([]);
   }
 
@@ -463,14 +483,35 @@ export default function Game() {
                     aria-expanded={searchResults.length > 0}
                     aria-controls="search-results"
                   />
+                  {query && (
+                    <button
+                      className="search-clear"
+                      type="button"
+                      aria-label="Clear song search"
+                      onClick={clearGuessSearch}
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m7 7 10 10M17 7 7 17" />
+                      </svg>
+                    </button>
+                  )}
                   {isSearching && <span className="search-status">Searching…</span>}
                   {searchResults.length > 0 && (
                     <ul className="search-results" id="search-results" role="listbox">
                       {searchResults.map((result) => (
                         <li key={result.id}>
                           <button type="button" onClick={() => selectSearchResult(result)}>
-                            <strong>{result.title}</strong>
-                            <span>{result.artist}</span>
+                            {result.artwork_url ? (
+                              <img src={result.artwork_url} alt="" />
+                            ) : (
+                              <span className="result-artwork-placeholder" aria-hidden="true">
+                                ♪
+                              </span>
+                            )}
+                            <span className="result-copy">
+                              <strong>{result.title}</strong>
+                              <small>{result.artist}</small>
+                            </span>
                           </button>
                         </li>
                       ))}
@@ -479,9 +520,21 @@ export default function Game() {
                 </div>
                 {selectedGuess && (
                   <div className="selected-guess">
-                    <span>Selected</span>
-                    <strong>{selectedGuess.title}</strong>
-                    <small>{selectedGuess.artist}</small>
+                    {selectedGuess.artwork_url ? (
+                      <img
+                        src={selectedGuess.artwork_url}
+                        alt={`Cover artwork for ${selectedGuess.title}`}
+                      />
+                    ) : (
+                      <span className="selected-artwork-placeholder" aria-hidden="true">
+                        ♪
+                      </span>
+                    )}
+                    <div>
+                      <span>Selected</span>
+                      <strong>{selectedGuess.title}</strong>
+                      <small>{selectedGuess.artist}</small>
+                    </div>
                   </div>
                 )}
                 <button
@@ -542,7 +595,7 @@ export default function Game() {
                   type="button"
                   onClick={advanceAttempt}
                 >
-                  Skip
+                  Next clue
                 </button>
               </nav>
 
