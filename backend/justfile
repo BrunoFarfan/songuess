@@ -1,0 +1,25 @@
+# Show available backend commands.
+default:
+  @just --list
+
+# Fix lint issues, format the backend, and verify it is clean.
+lint:
+  uv run ruff check app --fix
+  uv run ruff format app
+  uv run ruff check app
+
+# Run all backend tests, accepting the intentionally empty suite.
+test:
+  #!/usr/bin/env bash
+  uv run pytest
+  status=$?
+  if [ "$status" -eq 5 ]; then
+    echo "No backend tests found yet."
+    exit 0
+  fi
+  exit "$status"
+
+# Start the FastAPI development server.
+dev:
+  uv run uvicorn app.main:app --reload
+

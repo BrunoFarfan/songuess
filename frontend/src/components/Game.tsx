@@ -1,0 +1,816 @@
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+
+const SNIPPET_DURATIONS = [1, 2, 4, 7, 11, 15] as const;
+const CURRENT_YEAR = new Date().getFullYear();
+
+type Phase = "setup" | "loading" | "playing" | "revealed";
+type RoundOutcome = "correct" | "failed" | "gave_up";
+
+type Filters = {
+  genres: string[];
+  yearMin: number;
+  yearMax: number;
+  popularityMin: number;
+  popularityMax: number;
+};
+
+type FilterMetadata = {
+  genres: string[];
+  year_min: number | null;
+  year_max: number | null;
+  popularity_min: number;
+  popularity_max: number;
+  song_count: number;
+};
+
+type RoundResponse = {
+  song_id: number;
+  preview_url: string;
+};
+
+type SearchResult = {
+  id: number;
+  title: string;
+  artist: string;
+};
+
+type RevealedSong = SearchResult & {
+  album: string | null;
+  release_year: number;
+  artwork_url: string | null;
+  genres: string[];
+  preview_url: string;
+};
+
+const defaultFilters: Filters = {
+  genres: [],
+  yearMin: 1960,
+  yearMax: CURRENT_YEAR,
+  popularityMin: 0,
+  popularityMax: 100,
+};
+
+export default function Game() {
+  const [phase, setPhase] = useState<Phase>("setup");
+  const [metadata, setMetadata] = useState<FilterMetadata | null>(null);
+  const [draftFilters, setDraftFilters] = useState<Filters>(defaultFilters);
+  const [activeFilters, setActiveFilters] = useState<Filters>(defaultFilters);
+  const [currentSongId, setCurrentSongId] = useState<number | null>(null);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [attempt, setAttempt] = useState(0);
+  const [playbackCursor, setPlaybackCursor] = useState(0);
+  const [previousGuesses, setPreviousGuesses] = useState<SearchResult[]>([]);
+  const [excludedSongIds, setExcludedSongIds] = useState<number[]>([]);
+  const [outcome, setOutcome] = useState<RoundOutcome | null>(null);
+  const [revealedSong, setRevealedSong] = useState<RevealedSong | null>(null);
+  const [isRevealLoading, setIsRevealLoading] = useState(false);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [audioError, setAudioError] = useState("");
+  const [appError, setAppError] = useState("");
+  const [query, setQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [selectedGuess, setSelectedGuess] = useState<SearchResult | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const roundGenerationRef = useRef(0);
+  const unlockedDuration = SNIPPET_DURATIONS[attempt];
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadFilters() {
+      try {
+        const response = await fetch("/api/filters", { signal: controller.signal });
+        if (!response.ok) throw new Error("Could not load the catalog filters.");
+        const data = (await response.json()) as FilterMetadata;
+        setMetadata(data);
+        const nextFilters: Filters = {
+          genres: [],
+          yearMin: data.year_min ?? 1960,
+          yearMax: data.year_max ?? CURRENT_YEAR,
+          popularityMin: data.popularity_min,
+          popularityMax: data.popularity_max,
+        };
+        setDraftFilters(nextFilters);
+        setActiveFilters(nextFilters);
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setAppError("The API is not available yet. Start the backend and try again.");
+        }
+      }
+    }
+    void loadFilters();
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    audio.pause();
+    audio.currentTime = 0;
+    audio.load();
+    setPlaybackCursor(0);
+    setIsAudioPlaying(false);
+    setAudioError("");
+  }, [previewUrl]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => {
+      if (phase === "playing" && audio.currentTime >= unlockedDuration - 0.025) {
+        audio.pause();
+        audio.currentTime = unlockedDuration;
+        setPlaybackCursor(unlockedDuration);
+        setIsAudioPlaying(false);
+        return;
+      }
+      setPlaybackCursor(audio.currentTime);
+    };
+    const handlePause = () => setIsAudioPlaying(false);
+    const handlePlaying = () => setIsAudioPlaying(true);
+    const handleEnded = () => setIsAudioPlaying(false);
+    const handleError = () => {
+      setIsAudioPlaying(false);
+      setAudioError("This preview could not be played. You can reveal it or try another song.");
+    };
+    const handleLoaded = () => setAudioError("");
+
+    audio.addEventListener("timeupdate", handleTimeUpdate);
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("playing", handlePlaying);
+    audio.addEventListener("ended", handleEnded);
+    audio.addEventListener("error", handleError);
+    audio.addEventListener("loadedmetadata", handleLoaded);
+    return () => {
+      audio.removeEventListener("timeupdate", handleTimeUpdate);
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("playing", handlePlaying);
+      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("error", handleError);
+      audio.removeEventListener("loadedmetadata", handleLoaded);
+    };
+  }, [phase, unlockedDuration]);
+
+  useEffect(() => {
+    if (phase !== "playing" || query.trim().length < 2 || selectedGuess) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const response = await fetch(`/api/songs/search?q=${encodeURIComponent(query.trim())}`, {
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error("Search failed");
+        const results = (await response.json()) as SearchResult[];
+        setSearchResults(
+          results.filter((result) => !previousGuesses.some((guess) => guess.id === result.id)),
+        );
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setSearchResults([]);
+        }
+      } finally {
+        if (!controller.signal.aborted) setIsSearching(false);
+      }
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [phase, previousGuesses, query, selectedGuess]);
+
+  const progressPercent = useMemo(() => {
+    if (phase === "revealed") return 100;
+    return Math.min(100, (playbackCursor / unlockedDuration) * 100);
+  }, [phase, playbackCursor, unlockedDuration]);
+
+  function stopAudio(reset = false) {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.pause();
+    if (reset) {
+      audio.currentTime = 0;
+      setPlaybackCursor(0);
+    }
+  }
+
+  async function startRound(filters: Filters, idsToExclude = excludedSongIds) {
+    const generation = ++roundGenerationRef.current;
+    stopAudio(true);
+    setPhase("loading");
+    setAppError("");
+    setAudioError("");
+    setRevealedSong(null);
+    setOutcome(null);
+    setAttempt(0);
+    setPreviousGuesses([]);
+    setSelectedGuess(null);
+    setQuery("");
+    setSearchResults([]);
+
+    const requestRound = async (excludeIds: number[]) => {
+      return fetch("/api/round", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          genres: filters.genres,
+          year_min: filters.yearMin,
+          year_max: filters.yearMax,
+          popularity_min: filters.popularityMin,
+          popularity_max: filters.popularityMax,
+          exclude_ids: excludeIds,
+        }),
+      });
+    };
+
+    try {
+      let usedExclusions = idsToExclude;
+      let response = await requestRound(usedExclusions);
+      if (response.status === 404 && usedExclusions.length > 0) {
+        usedExclusions = [];
+        response = await requestRound([]);
+      }
+      if (!response.ok) {
+        const message = await readApiError(response);
+        throw new Error(message);
+      }
+      const round = (await response.json()) as RoundResponse;
+      if (generation !== roundGenerationRef.current) return;
+
+      setActiveFilters(filters);
+      setCurrentSongId(round.song_id);
+      setPreviewUrl(round.preview_url);
+      setExcludedSongIds([...usedExclusions, round.song_id]);
+      setPhase("playing");
+    } catch (error) {
+      if (generation !== roundGenerationRef.current) return;
+      setCurrentSongId(null);
+      setPreviewUrl("");
+      setAppError(error instanceof Error ? error.message : "Could not begin a new round.");
+      setPhase("setup");
+    }
+  }
+
+  function beginGame() {
+    if (draftFilters.yearMin > draftFilters.yearMax) {
+      setAppError("The minimum year cannot be later than the maximum year.");
+      return;
+    }
+    if (draftFilters.popularityMin > draftFilters.popularityMax) {
+      setAppError("The minimum popularity cannot exceed the maximum popularity.");
+      return;
+    }
+    void startRound(draftFilters, []);
+  }
+
+  async function playSnippet() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    setAudioError("");
+    if (audio.currentTime >= unlockedDuration - 0.05) {
+      const segmentStart = attempt === 0 ? 0 : SNIPPET_DURATIONS[attempt - 1];
+      audio.currentTime = segmentStart;
+      setPlaybackCursor(segmentStart);
+    }
+    try {
+      await audio.play();
+    } catch {
+      setAudioError("Playback was blocked. Tap Play again or check your browser audio settings.");
+    }
+  }
+
+  function toggleSnippetPlayback() {
+    if (isAudioPlaying) {
+      audioRef.current?.pause();
+    } else {
+      void playSnippet();
+    }
+  }
+
+  function rewindSnippet() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.pause();
+    audio.currentTime = 0;
+    setPlaybackCursor(0);
+    setAudioError("");
+  }
+
+  async function finishRound(nextOutcome: RoundOutcome) {
+    if (currentSongId === null) return;
+    const generation = roundGenerationRef.current;
+    stopAudio(true);
+    setOutcome(nextOutcome);
+    setPhase("revealed");
+    setIsRevealLoading(true);
+    setAppError("");
+    try {
+      const response = await fetch(`/api/songs/${currentSongId}`);
+      if (!response.ok) throw new Error(await readApiError(response));
+      const song = (await response.json()) as RevealedSong;
+      if (generation === roundGenerationRef.current) setRevealedSong(song);
+    } catch (error) {
+      if (generation === roundGenerationRef.current) {
+        setAppError(error instanceof Error ? error.message : "Could not reveal this song.");
+      }
+    } finally {
+      if (generation === roundGenerationRef.current) setIsRevealLoading(false);
+    }
+  }
+
+  function advanceAttempt() {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = unlockedDuration;
+    }
+    setPlaybackCursor(unlockedDuration);
+    setSelectedGuess(null);
+    setQuery("");
+    setSearchResults([]);
+    if (attempt === SNIPPET_DURATIONS.length - 1) {
+      void finishRound("failed");
+    } else {
+      setAttempt((current) => current + 1);
+    }
+  }
+
+  function submitGuess() {
+    if (!selectedGuess || currentSongId === null) return;
+    if (selectedGuess.id === currentSongId) {
+      void finishRound("correct");
+      return;
+    }
+    if (!previousGuesses.some((guess) => guess.id === selectedGuess.id)) {
+      setPreviousGuesses((guesses) => [...guesses, selectedGuess]);
+    }
+    advanceAttempt();
+  }
+
+  function selectSearchResult(result: SearchResult) {
+    setSelectedGuess(result);
+    setQuery(`${result.title} — ${result.artist}`);
+    setSearchResults([]);
+  }
+
+  async function playFullPreview(restart = false) {
+    const audio = audioRef.current;
+    if (!audio) return;
+    setAudioError("");
+    if (restart || audio.ended) audio.currentTime = 0;
+    try {
+      await audio.play();
+    } catch {
+      setAudioError("Playback was blocked. Tap the control again to continue.");
+    }
+  }
+
+  function toggleGenre(genre: string) {
+    setDraftFilters((filters) => ({
+      ...filters,
+      genres: filters.genres.includes(genre)
+        ? filters.genres.filter((item) => item !== genre)
+        : [...filters.genres, genre],
+    }));
+  }
+
+  return (
+    <section className="game-shell" aria-live="polite">
+      <header className="brand-lockup">
+        <a className="brand" href="/" aria-label="Songuess home">
+          Songuess<span aria-hidden="true">.</span>
+        </a>
+      </header>
+
+      <audio ref={audioRef} src={previewUrl || undefined} preload="metadata" />
+
+      {phase === "setup" || phase === "loading" ? (
+        <SetupScreen
+          filters={draftFilters}
+          metadata={metadata}
+          error={appError}
+          loading={phase === "loading"}
+          onFiltersChange={setDraftFilters}
+          onGenreToggle={toggleGenre}
+          onPlay={beginGame}
+        />
+      ) : (
+        <div className="play-stack">
+          <div className="round-topline">
+            <span>
+              {activeFilters.genres.length ? activeFilters.genres.join(" · ") : "All genres"}
+            </span>
+          </div>
+
+          {phase === "playing" ? (
+            <>
+              <section className="listening-card" aria-label="Audio snippet controls">
+                <SnippetProgress attempt={attempt} />
+                <div className="time-readout">
+                  <span>{formatTime(playbackCursor)}</span>
+                  <span>/ {unlockedDuration}s</span>
+                </div>
+                <div className="playback-track" aria-hidden="true">
+                  <span style={{ width: `${progressPercent}%` }} />
+                </div>
+                <button className="play-orbit" type="button" onClick={toggleSnippetPlayback}>
+                  <span className="play-icon" aria-hidden="true">
+                    {isAudioPlaying ? "Ⅱ" : "▶"}
+                  </span>
+                  <span>{isAudioPlaying ? "Pause" : "Play"}</span>
+                </button>
+                <button className="text-control" type="button" onClick={rewindSnippet}>
+                  ↶ Rewind
+                </button>
+                {audioError && <p className="inline-error">{audioError}</p>}
+              </section>
+
+              <section className="guess-card" aria-labelledby="guess-heading">
+                <div className="section-heading">
+                  <div>
+                    <h2 id="guess-heading">Guess</h2>
+                  </div>
+                  <span className="attempt-count">
+                    {attempt + 1} / {SNIPPET_DURATIONS.length}
+                  </span>
+                </div>
+                <div className="search-field">
+                  <label className="sr-only" htmlFor="song-search">
+                    Search by song title or artist
+                  </label>
+                  <input
+                    id="song-search"
+                    type="search"
+                    value={query}
+                    autoComplete="off"
+                    placeholder="Song or artist…"
+                    onChange={(event) => {
+                      setQuery(event.target.value);
+                      setSelectedGuess(null);
+                    }}
+                    aria-expanded={searchResults.length > 0}
+                    aria-controls="search-results"
+                  />
+                  {isSearching && <span className="search-status">Searching…</span>}
+                  {searchResults.length > 0 && (
+                    <ul className="search-results" id="search-results" role="listbox">
+                      {searchResults.map((result) => (
+                        <li key={result.id}>
+                          <button type="button" onClick={() => selectSearchResult(result)}>
+                            <strong>{result.title}</strong>
+                            <span>{result.artist}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                {selectedGuess && (
+                  <div className="selected-guess">
+                    <span>Selected</span>
+                    <strong>{selectedGuess.title}</strong>
+                    <small>{selectedGuess.artist}</small>
+                  </div>
+                )}
+                <button
+                  className="primary-action"
+                  type="button"
+                  disabled={!selectedGuess}
+                  onClick={submitGuess}
+                >
+                  Guess
+                </button>
+                <div className="round-actions">
+                  <button className="secondary-action" type="button" onClick={advanceAttempt}>
+                    Skip
+                  </button>
+                  <button
+                    className="danger-action"
+                    type="button"
+                    onClick={() => void finishRound("gave_up")}
+                  >
+                    Reveal
+                  </button>
+                </div>
+              </section>
+
+              {previousGuesses.length > 0 && (
+                <section className="previous-guesses" aria-labelledby="previous-heading">
+                  <span className="eyebrow" id="previous-heading">
+                    Wrong
+                  </span>
+                  <ul>
+                    {previousGuesses.map((guess) => (
+                      <li key={guess.id}>
+                        <span aria-hidden="true">×</span>
+                        <div>
+                          <strong>{guess.title}</strong>
+                          <small>{guess.artist}</small>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </>
+          ) : (
+            <RevealCard
+              outcome={outcome}
+              song={revealedSong}
+              loading={isRevealLoading}
+              error={appError}
+              audioError={audioError}
+              isPlaying={isAudioPlaying}
+              onTogglePreview={() => {
+                if (isAudioPlaying) audioRef.current?.pause();
+                else void playFullPreview();
+              }}
+              onReplay={() => void playFullPreview(true)}
+              onNext={() => void startRound(activeFilters)}
+              onChangeFilters={() => {
+                ++roundGenerationRef.current;
+                stopAudio(true);
+                setDraftFilters(activeFilters);
+                setPhase("setup");
+                setAppError("");
+              }}
+            />
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+type SetupScreenProps = {
+  filters: Filters;
+  metadata: FilterMetadata | null;
+  error: string;
+  loading: boolean;
+  onFiltersChange: (filters: Filters) => void;
+  onGenreToggle: (genre: string) => void;
+  onPlay: () => void;
+};
+
+function SetupScreen({
+  filters,
+  metadata,
+  error,
+  loading,
+  onFiltersChange,
+  onGenreToggle,
+  onPlay,
+}: SetupScreenProps) {
+  return (
+    <section className="setup-card" aria-labelledby="setup-heading">
+      <div className="setup-intro">
+        <h1 id="setup-heading">Pick your mix.</h1>
+      </div>
+
+      <div className="setup-controls">
+        {metadata?.song_count === 0 && !error && (
+          <div className="catalog-note">
+            <strong>Catalog empty</strong>
+          </div>
+        )}
+        {error && <p className="notice-error">{error}</p>}
+
+        {(metadata === null || metadata.genres.length > 0) && (
+          <fieldset>
+            <legend>Genres</legend>
+            <div className="genre-grid">
+              {metadata === null ? (
+                <span className="muted">Loading…</span>
+              ) : (
+                metadata.genres.map((genre) => (
+                  <label className="genre-chip" key={genre}>
+                    <input
+                      type="checkbox"
+                      checked={filters.genres.includes(genre)}
+                      onChange={() => onGenreToggle(genre)}
+                    />
+                    <span>{genre}</span>
+                  </label>
+                ))
+              )}
+            </div>
+          </fieldset>
+        )}
+
+        <div className="range-section">
+          <div className="range-heading">
+            <h2>Year</h2>
+            <output>
+              {filters.yearMin} — {filters.yearMax}
+            </output>
+          </div>
+          <RangeSlider
+            min={metadata?.year_min ?? 1960}
+            max={metadata?.year_max ?? CURRENT_YEAR}
+            low={filters.yearMin}
+            high={filters.yearMax}
+            lowLabel="Minimum release year"
+            highLabel="Maximum release year"
+            onChange={(yearMin, yearMax) => onFiltersChange({ ...filters, yearMin, yearMax })}
+          />
+        </div>
+
+        <div className="range-section">
+          <div className="range-heading">
+            <h2>Popularity</h2>
+            <output>
+              {filters.popularityMin} — {filters.popularityMax}
+            </output>
+          </div>
+          <RangeSlider
+            min={0}
+            max={100}
+            low={filters.popularityMin}
+            high={filters.popularityMax}
+            lowLabel="Minimum popularity"
+            highLabel="Maximum popularity"
+            onChange={(popularityMin, popularityMax) =>
+              onFiltersChange({ ...filters, popularityMin, popularityMax })
+            }
+          />
+        </div>
+
+        <button className="start-button" type="button" onClick={onPlay} disabled={loading}>
+          <span>{loading ? "Loading…" : "Play"}</span>
+          <span aria-hidden="true">↗</span>
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function SnippetProgress({ attempt }: { attempt: number }) {
+  return (
+    <div className="snippet-progress">
+      <div className="section-heading compact">
+        <div>
+          <span className="eyebrow">Clue {attempt + 1}</span>
+          <h2>{SNIPPET_DURATIONS[attempt]} seconds</h2>
+        </div>
+      </div>
+      <ol aria-label={`Clue ${attempt + 1} of ${SNIPPET_DURATIONS.length}`}>
+        {SNIPPET_DURATIONS.map((duration, index) => (
+          <li className={index <= attempt ? "unlocked" : ""} key={duration}>
+            <span>{duration}s</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+type RevealCardProps = {
+  outcome: RoundOutcome | null;
+  song: RevealedSong | null;
+  loading: boolean;
+  error: string;
+  audioError: string;
+  isPlaying: boolean;
+  onTogglePreview: () => void;
+  onReplay: () => void;
+  onNext: () => void;
+  onChangeFilters: () => void;
+};
+
+function RevealCard({
+  outcome,
+  song,
+  loading,
+  error,
+  audioError,
+  isPlaying,
+  onTogglePreview,
+  onReplay,
+  onNext,
+  onChangeFilters,
+}: RevealCardProps) {
+  const copy = outcome === "correct" ? "Correct" : outcome === "gave_up" ? "Revealed" : "Missed";
+
+  return (
+    <section className={`reveal-card outcome-${outcome ?? "loading"}`}>
+      <div className="reveal-copy">
+        <h1>{copy}</h1>
+      </div>
+      {loading && <div className="reveal-loading">Loading…</div>}
+      {error && <p className="notice-error">{error}</p>}
+      {song && (
+        <>
+          <div className="record-frame">
+            {song.artwork_url ? (
+              <img src={song.artwork_url} alt={`Cover artwork for ${song.title}`} />
+            ) : (
+              <div className="artwork-placeholder" aria-label="No cover artwork available">
+                <span>♪</span>
+              </div>
+            )}
+            <div className="song-details">
+              <span>{song.release_year}</span>
+              <h2>{song.title}</h2>
+              <p>{song.artist}</p>
+              {song.album && <small>{song.album}</small>}
+              {song.genres.length > 0 && (
+                <div className="genre-line">{song.genres.join(" · ")}</div>
+              )}
+            </div>
+          </div>
+          <div className="full-preview">
+            <div>
+              <h3>Full preview</h3>
+            </div>
+            <div className="full-preview-controls">
+              <button className="primary-action" type="button" onClick={onTogglePreview}>
+                {isPlaying ? "Pause preview" : "Play full preview"}
+              </button>
+              <button className="secondary-action" type="button" onClick={onReplay}>
+                ↶ Replay
+              </button>
+            </div>
+            {audioError && <p className="inline-error">{audioError}</p>}
+          </div>
+        </>
+      )}
+      <div className="reveal-actions">
+        <button className="start-button" type="button" onClick={onNext} disabled={!song}>
+          <span>Next song</span>
+          <span aria-hidden="true">→</span>
+        </button>
+        <button className="text-control" type="button" onClick={onChangeFilters}>
+          Change filters
+        </button>
+      </div>
+    </section>
+  );
+}
+
+type RangeSliderProps = {
+  min: number;
+  max: number;
+  low: number;
+  high: number;
+  lowLabel: string;
+  highLabel: string;
+  onChange: (low: number, high: number) => void;
+};
+
+function RangeSlider({ min, max, low, high, lowLabel, highLabel, onChange }: RangeSliderProps) {
+  const span = Math.max(1, max - min);
+  const trackStyle = {
+    "--range-start": `${((low - min) / span) * 100}%`,
+    "--range-end": `${((high - min) / span) * 100}%`,
+  } as CSSProperties;
+
+  return (
+    <div className="dual-range" style={trackStyle}>
+      <div className="dual-range-track" aria-hidden="true" />
+      <input
+        className="dual-range-input dual-range-low"
+        type="range"
+        min={min}
+        max={max}
+        value={low}
+        aria-label={lowLabel}
+        onChange={(event) => onChange(Math.min(Number(event.target.value), high), high)}
+      />
+      <input
+        className="dual-range-input dual-range-high"
+        type="range"
+        min={min}
+        max={max}
+        value={high}
+        aria-label={highLabel}
+        onChange={(event) => onChange(low, Math.max(Number(event.target.value), low))}
+      />
+    </div>
+  );
+}
+
+async function readApiError(response: Response): Promise<string> {
+  try {
+    const payload = (await response.json()) as { detail?: string | { message?: string } };
+    if (typeof payload.detail === "string") return payload.detail;
+    if (payload.detail?.message) return payload.detail.message;
+  } catch {
+    // The fallback below is intentionally user-safe for non-JSON responses.
+  }
+  return response.status === 404
+    ? "No songs match these filters yet."
+    : "Something went wrong. Try again.";
+}
+
+function formatTime(seconds: number): string {
+  return `${Math.max(0, seconds).toFixed(1)}s`;
+}

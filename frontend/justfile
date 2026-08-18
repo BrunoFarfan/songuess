@@ -1,0 +1,16 @@
+# Show available frontend commands.
+default:
+  @just --list
+
+# Format the frontend and run static checks.
+lint:
+  pnpm exec prettier --write .
+  pnpm check
+
+# Run all frontend tests once.
+test:
+  pnpm test
+
+# Start the Astro development server.
+dev:
+  pnpm dev

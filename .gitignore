@@ -1,0 +1,15 @@
+.DS_Store
+.env
+.pnpm-store/
+.playwright-cli/
+.pytest_cache/
+.venv/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+*.sqlite3
+backend/data/
+frontend/.astro/
+frontend/dist/
+frontend/node_modules/
+output/
