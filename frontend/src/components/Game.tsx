@@ -64,6 +64,7 @@ export default function Game() {
   const [outcome, setOutcome] = useState<RoundOutcome | null>(null);
   const [revealedSong, setRevealedSong] = useState<RevealedSong | null>(null);
   const [isRevealLoading, setIsRevealLoading] = useState(false);
+  const [isRevealConfirmOpen, setIsRevealConfirmOpen] = useState(false);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [audioError, setAudioError] = useState("");
   const [appError, setAppError] = useState("");
@@ -75,6 +76,19 @@ export default function Game() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const roundGenerationRef = useRef(0);
   const unlockedDuration = SNIPPET_DURATIONS[attempt];
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [phase]);
+
+  useEffect(() => {
+    if (!isRevealConfirmOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsRevealConfirmOpen(false);
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [isRevealConfirmOpen]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -130,6 +144,7 @@ export default function Game() {
       setPlaybackCursor(audio.currentTime);
     };
     const handlePause = () => setIsAudioPlaying(false);
+    const handlePlay = () => setIsAudioPlaying(true);
     const handlePlaying = () => setIsAudioPlaying(true);
     const handleEnded = () => setIsAudioPlaying(false);
     const handleError = () => {
@@ -140,6 +155,7 @@ export default function Game() {
 
     audio.addEventListener("timeupdate", handleTimeUpdate);
     audio.addEventListener("pause", handlePause);
+    audio.addEventListener("play", handlePlay);
     audio.addEventListener("playing", handlePlaying);
     audio.addEventListener("ended", handleEnded);
     audio.addEventListener("error", handleError);
@@ -147,6 +163,7 @@ export default function Game() {
     return () => {
       audio.removeEventListener("timeupdate", handleTimeUpdate);
       audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("play", handlePlay);
       audio.removeEventListener("playing", handlePlaying);
       audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("error", handleError);
@@ -190,8 +207,8 @@ export default function Game() {
 
   const progressPercent = useMemo(() => {
     if (phase === "revealed") return 100;
-    return Math.min(100, (playbackCursor / unlockedDuration) * 100);
-  }, [phase, playbackCursor, unlockedDuration]);
+    return Math.min(100, (playbackCursor / SNIPPET_DURATIONS[SNIPPET_DURATIONS.length - 1]) * 100);
+  }, [phase, playbackCursor]);
 
   function stopAudio(reset = false) {
     const audio = audioRef.current;
@@ -216,6 +233,7 @@ export default function Game() {
     setSelectedGuess(null);
     setQuery("");
     setSearchResults([]);
+    setIsRevealConfirmOpen(false);
 
     const requestRound = async (excludeIds: number[]) => {
       return fetch("/api/round", {
@@ -308,6 +326,7 @@ export default function Game() {
   async function finishRound(nextOutcome: RoundOutcome) {
     if (currentSongId === null) return;
     const generation = roundGenerationRef.current;
+    setIsRevealConfirmOpen(false);
     stopAudio(true);
     setOutcome(nextOutcome);
     setPhase("revealed");
@@ -414,35 +433,19 @@ export default function Game() {
           {phase === "playing" ? (
             <>
               <section className="listening-card" aria-label="Audio snippet controls">
-                <SnippetProgress attempt={attempt} />
-                <div className="time-readout">
-                  <span>{formatTime(playbackCursor)}</span>
-                  <span>/ {unlockedDuration}s</span>
-                </div>
-                <div className="playback-track" aria-hidden="true">
-                  <span style={{ width: `${progressPercent}%` }} />
-                </div>
-                <button className="play-orbit" type="button" onClick={toggleSnippetPlayback}>
-                  <span className="play-icon" aria-hidden="true">
-                    {isAudioPlaying ? "Ⅱ" : "▶"}
-                  </span>
-                  <span>{isAudioPlaying ? "Pause" : "Play"}</span>
-                </button>
-                <button className="text-control" type="button" onClick={rewindSnippet}>
-                  ↶ Rewind
-                </button>
+                <p className="clue-readout">
+                  Current clue: {unlockedDuration} {unlockedDuration === 1 ? "second" : "seconds"}
+                </p>
+                <VinylProgress
+                  attempt={attempt}
+                  progressPercent={progressPercent}
+                  isPlaying={isAudioPlaying}
+                  onRewind={rewindSnippet}
+                />
                 {audioError && <p className="inline-error">{audioError}</p>}
               </section>
 
-              <section className="guess-card" aria-labelledby="guess-heading">
-                <div className="section-heading">
-                  <div>
-                    <h2 id="guess-heading">Guess</h2>
-                  </div>
-                  <span className="attempt-count">
-                    {attempt + 1} / {SNIPPET_DURATIONS.length}
-                  </span>
-                </div>
+              <section className="guess-card" aria-label="Guess the song">
                 <div className="search-field">
                   <label className="sr-only" htmlFor="song-search">
                     Search by song title or artist
@@ -489,18 +492,6 @@ export default function Game() {
                 >
                   Guess
                 </button>
-                <div className="round-actions">
-                  <button className="secondary-action" type="button" onClick={advanceAttempt}>
-                    Skip
-                  </button>
-                  <button
-                    className="danger-action"
-                    type="button"
-                    onClick={() => void finishRound("gave_up")}
-                  >
-                    Reveal
-                  </button>
-                </div>
               </section>
 
               {previousGuesses.length > 0 && (
@@ -520,6 +511,66 @@ export default function Game() {
                     ))}
                   </ul>
                 </section>
+              )}
+
+              <nav className="game-actions-dock" aria-label="Round controls">
+                <button
+                  className="dock-side-action dock-reveal"
+                  type="button"
+                  onClick={() => setIsRevealConfirmOpen(true)}
+                >
+                  Reveal
+                </button>
+                <button
+                  className={`dock-play-action${isAudioPlaying ? " is-playing" : ""}`}
+                  type="button"
+                  onClick={toggleSnippetPlayback}
+                  aria-label={isAudioPlaying ? "Pause clue" : "Play clue"}
+                >
+                  {isAudioPlaying ? (
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m8 5 11 7-11 7V5Z" />
+                    </svg>
+                  )}
+                </button>
+                <button
+                  className="dock-side-action dock-skip"
+                  type="button"
+                  onClick={advanceAttempt}
+                >
+                  Skip
+                </button>
+              </nav>
+
+              {isRevealConfirmOpen && (
+                <div
+                  className="confirm-backdrop"
+                  role="presentation"
+                  onMouseDown={(event) => {
+                    if (event.currentTarget === event.target) setIsRevealConfirmOpen(false);
+                  }}
+                >
+                  <section
+                    className="confirm-dialog"
+                    role="alertdialog"
+                    aria-modal="true"
+                    aria-labelledby="reveal-confirm-title"
+                  >
+                    <h2 id="reveal-confirm-title">Reveal song?</h2>
+                    <div className="confirm-actions">
+                      <button type="button" autoFocus onClick={() => setIsRevealConfirmOpen(false)}>
+                        Cancel
+                      </button>
+                      <button type="button" onClick={() => void finishRound("gave_up")}>
+                        Reveal
+                      </button>
+                    </div>
+                  </section>
+                </div>
               )}
             </>
           ) : (
@@ -653,22 +704,57 @@ function SetupScreen({
   );
 }
 
-function SnippetProgress({ attempt }: { attempt: number }) {
+type VinylProgressProps = {
+  attempt: number;
+  progressPercent: number;
+  isPlaying: boolean;
+  onRewind: () => void;
+};
+
+function VinylProgress({ attempt, progressPercent, isPlaying, onRewind }: VinylProgressProps) {
+  const center = 120;
+  const tickInnerRadius = 101;
+  const tickOuterRadius = 111;
+  const totalDuration = SNIPPET_DURATIONS[SNIPPET_DURATIONS.length - 1];
+
   return (
-    <div className="snippet-progress">
-      <div className="section-heading compact">
-        <div>
-          <span className="eyebrow">Clue {attempt + 1}</span>
-          <h2>{SNIPPET_DURATIONS[attempt]} seconds</h2>
-        </div>
+    <div
+      className={`vinyl-progress${isPlaying ? " is-spinning" : ""}`}
+      role="group"
+      aria-label={`Clue ${attempt + 1} of ${SNIPPET_DURATIONS.length}, ${Math.round(progressPercent)} percent played`}
+    >
+      <div className="vinyl-disc" aria-hidden="true">
+        <span />
       </div>
-      <ol aria-label={`Clue ${attempt + 1} of ${SNIPPET_DURATIONS.length}`}>
-        {SNIPPET_DURATIONS.map((duration, index) => (
-          <li className={index <= attempt ? "unlocked" : ""} key={duration}>
-            <span>{duration}s</span>
-          </li>
-        ))}
-      </ol>
+      <svg className="vinyl-progress-ring" viewBox="0 0 240 240" aria-hidden="true">
+        <circle className="vinyl-ring-base" cx={center} cy={center} r="106" pathLength="100" />
+        <circle
+          className="vinyl-ring-fill"
+          cx={center}
+          cy={center}
+          r="106"
+          pathLength="100"
+          style={{ strokeDasharray: `${progressPercent} ${100 - progressPercent}` }}
+        />
+        {SNIPPET_DURATIONS.slice(0, -1).map((duration) => {
+          const angle = (duration / totalDuration) * Math.PI * 2 - Math.PI / 2;
+          return (
+            <line
+              className="vinyl-ring-cut"
+              key={duration}
+              x1={center + Math.cos(angle) * tickInnerRadius}
+              y1={center + Math.sin(angle) * tickInnerRadius}
+              x2={center + Math.cos(angle) * tickOuterRadius}
+              y2={center + Math.sin(angle) * tickOuterRadius}
+            />
+          );
+        })}
+      </svg>
+      <button className="vinyl-rewind" type="button" onClick={onRewind} aria-label="Rewind clue">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M8.3 7.5H4.5V3.7M4.8 7.1A8 8 0 1 1 4 13" />
+        </svg>
+      </button>
     </div>
   );
 }
@@ -809,8 +895,4 @@ async function readApiError(response: Response): Promise<string> {
   return response.status === 404
     ? "No songs match these filters yet."
     : "Something went wrong. Try again.";
-}
-
-function formatTime(seconds: number): string {
-  return `${Math.max(0, seconds).toFixed(1)}s`;
 }

@@ -2,7 +2,7 @@
 
 Songuess is an unlimited, solo music guessing game. A round opens one Apple preview in continuous stages—1, 2, 4, 7, 11, and 15 seconds—while the browser owns all temporary game state.
 
-This repository currently contains the complete runtime frontend and backend over an intentionally empty catalog. Catalog ingestion, seed data, population scripts, and tests are deliberately deferred. No Apple, ListenBrainz, MusicBrainz, or Cloudflare credentials are needed to run the empty application shell.
+The runtime frontend and backend read a local catalog built offline from public ListenBrainz, MusicBrainz, and Apple data. Gameplay itself never calls those services.
 
 ## Repository map
 
@@ -19,6 +19,7 @@ This repository currently contains the complete runtime frontend and backend ove
 │   └── pnpm-lock.yaml
 ├── migrations/
 │   └── 001_initial.sql      # SQLite/D1-compatible catalog schema
+├── dataset/                 # Resumable offline catalog importer
 ├── .env.example
 └── plan.md
 ```
@@ -34,7 +35,7 @@ The API is stateless. There are no game, account, history, or session tables. So
 
 ## Backend
 
-Install the locked Python environment and create the empty SQLite database:
+Install the locked Python environment and create the SQLite database:
 
 ```bash
 cd backend
@@ -58,7 +59,13 @@ Available runtime endpoints:
 - `GET /api/songs/search?q=...`
 - `GET /api/songs/{id}`
 
-With the intentionally empty database, `/api/filters` reports zero songs and `/api/round` returns a clear `404 NO_MATCHING_SONGS` response.
+To populate the local database with 1,000 validated popular songs released from 2006 through 2026:
+
+```bash
+just populate
+```
+
+The importer merges ListenBrainz's sitewide charts from all-time through weekly windows, then fills any overflow from popularity-bounded recordings by its top artists. It enriches recording IDs and first-release metadata through MusicBrainz, confidently matches Apple tracks, verifies each real preview URL, normalizes popularity to 0–100, and performs idempotent catalog upserts. Responses are cached in the ignored `dataset/cache/` directory so interrupted runs can resume. Use `just populate --help` for country, date, candidate-count, and replacement options. No API credentials are required; MusicBrainz requests follow its public one-request-per-second limit and Apple searches are kept below 20 requests per minute.
 
 ## Frontend
 
@@ -100,10 +107,8 @@ just lint
 just test
 ```
 
-## Catalog contract and deferred work
+## Catalog contract
 
-The database is intentionally not populated. Future catalog work should insert real, validated rows only; `preview_url` is required and fake Apple preview URLs should never be used. Runtime gameplay reads stored preview URLs and never calls Apple, ListenBrainz, or MusicBrainz.
-
-The later ingestion work remains responsible for candidate discovery and popularity from ListenBrainz, canonical metadata and genres from MusicBrainz, confident Apple matching, preview validation, normalized popularity, and idempotent catalog writes. Any credentials or rate-limit handling belong to that later offline workflow.
+The importer inserts real, validated rows only; `preview_url` is required and fake Apple preview URLs are never used. Runtime gameplay reads stored preview URLs and never calls Apple, ListenBrainz, or MusicBrainz. The local database and API response caches are ignored because they are reproducible development artifacts.
 
 The schema and query style are SQLite/D1-compatible, frontend requests are relative, and Astro builds static assets. This keeps the code structurally ready for a later Cloudflare adaptation, but this repository contains no Cloudflare deployment configuration, infrastructure, secrets, domains, CI/CD, or deployment instructions.

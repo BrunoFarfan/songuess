@@ -4,9 +4,9 @@ default:
 
 # Fix lint issues, format the backend, and verify it is clean.
 lint:
-  uv run ruff check app --fix
-  uv run ruff format app
-  uv run ruff check app
+  uv run ruff check app ../dataset --fix
+  uv run ruff format app ../dataset
+  uv run ruff check app ../dataset
 
 # Run all backend tests, accepting the intentionally empty suite.
 test:
@@ -23,3 +23,6 @@ test:
 dev:
   uv run uvicorn app.main:app --reload
 
+# Build the local catalog from ListenBrainz, MusicBrainz, and Apple.
+populate *args:
+  cd .. && uv run --project backend python -m dataset.populate {{args}}
