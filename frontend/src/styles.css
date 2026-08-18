@@ -57,6 +57,8 @@ input {
 }
 button {
   color: inherit;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 button:focus-visible,
 input:focus-visible {
@@ -233,9 +235,6 @@ legend,
   text-transform: capitalize;
   transition: 150ms ease;
 }
-.genre-chip:hover span {
-  border-color: rgba(244, 239, 229, 0.5);
-}
 .genre-chip input:checked + span {
   border-color: var(--accent);
   color: var(--ink);
@@ -352,7 +351,6 @@ legend,
 .primary-action,
 .secondary-action,
 .danger-action,
-.text-control,
 .dock-side-action,
 .dock-play-action,
 .vinyl-rewind,
@@ -375,10 +373,6 @@ legend,
   transition:
     transform 160ms ease,
     box-shadow 160ms ease;
-}
-.start-button:hover:not(:disabled) {
-  transform: translate(0.35rem, -0.35rem);
-  box-shadow: -0.35rem 0.35rem 0 var(--accent);
 }
 .start-button:active:not(:disabled) {
   transform: translate(0.12rem, -0.12rem) scale(0.99);
@@ -526,28 +520,103 @@ legend,
   transition:
     transform 160ms ease,
     border-color 160ms ease,
-    color 160ms ease;
+    color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
 }
-.vinyl-rewind:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-  transform: rotate(-25deg) scale(1.08);
-}
-.vinyl-rewind svg {
-  width: 1.4rem;
+.replay-icon {
+  width: 1.15rem;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.8;
 }
-.text-control {
-  padding: 0.45rem;
+.vinyl-rewind .replay-icon {
+  width: 1.4rem;
+}
+.vinyl-rewind:active {
+  box-shadow: -0.1rem 0.1rem 0 var(--accent);
+  transform: translate(0.1rem, -0.1rem) scale(0.96);
+}
+.volume-control {
+  display: grid;
+  width: min(72%, 15rem);
+  grid-template-columns: auto minmax(0, 1fr) 2.2rem;
+  gap: 0.65rem;
+  align-items: center;
+  margin-top: 0.9rem;
   color: var(--muted);
+}
+.volume-icon {
+  width: 1.05rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.65;
+}
+.volume-icon path:first-child {
+  fill: currentColor;
+  stroke: none;
+}
+.volume-control input {
+  width: 100%;
+  height: 1.6rem;
+  margin: 0;
+  appearance: none;
   background: transparent;
-  font-size: 0.72rem;
-  text-decoration: underline;
-  text-underline-offset: 0.2rem;
+  cursor: pointer;
+}
+.volume-control input::-webkit-slider-runnable-track {
+  height: 0.18rem;
+  border-radius: 99rem;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 var(--volume-level),
+    rgba(244, 239, 229, 0.2) var(--volume-level) 100%
+  );
+}
+.volume-control input::-webkit-slider-thumb {
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-top: -0.36rem;
+  appearance: none;
+  border: 2px solid var(--paper);
+  border-radius: 50%;
+  background: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink);
+}
+.volume-control input::-moz-range-track {
+  height: 0.18rem;
+  border-radius: 99rem;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 var(--volume-level),
+    rgba(244, 239, 229, 0.2) var(--volume-level) 100%
+  );
+}
+.volume-control input::-moz-range-thumb {
+  width: 0.68rem;
+  height: 0.68rem;
+  border: 2px solid var(--paper);
+  border-radius: 50%;
+  background: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink);
+}
+.volume-control input:focus-visible {
+  outline: 0;
+}
+.volume-control input:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--mint);
+}
+.volume-control input:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px var(--mint);
+}
+.volume-control output {
+  font-size: 0.58rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 .inline-error {
   position: relative;
@@ -594,17 +663,18 @@ legend,
     background 160ms ease,
     transform 160ms ease;
 }
-.search-clear:hover {
-  color: var(--paper);
-  background: var(--ink);
-  transform: translateY(-50%) rotate(8deg) scale(1.06);
-}
 .search-clear svg {
   width: 1.05rem;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-width: 2.2;
+}
+.search-clear:active {
+  color: var(--paper);
+  background: var(--ink);
+  box-shadow: -0.08rem 0.08rem 0 var(--accent);
+  transform: translate(0.08rem, calc(-50% - 0.08rem)) scale(0.95);
 }
 .search-status {
   position: absolute;
@@ -645,9 +715,15 @@ legend,
   text-align: left;
   background: transparent;
   cursor: pointer;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
 }
-.search-results button:hover {
+.search-results button:active {
   background: rgba(255, 255, 255, 0.06);
+  box-shadow: -0.08rem 0.08rem 0 var(--accent);
+  transform: translate(0.08rem, -0.08rem) scale(0.99);
 }
 .search-results img,
 .result-artwork-placeholder {
@@ -741,11 +817,6 @@ legend,
     box-shadow 160ms ease,
     background 160ms ease;
 }
-.primary-action:hover:not(:disabled) {
-  background: #ff856c;
-  box-shadow: -0.35rem 0.35rem 0 var(--ink);
-  transform: translate(0.35rem, -0.35rem);
-}
 .primary-action:active:not(:disabled) {
   box-shadow: -0.12rem 0.12rem 0 var(--ink);
   transform: translate(0.12rem, -0.12rem) scale(0.99);
@@ -763,16 +834,19 @@ legend,
   background: transparent;
   font-size: 0.7rem;
   font-weight: 720;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
 }
-.secondary-action:hover {
-  border-color: rgba(244, 239, 229, 0.55);
+.secondary-action:active,
+.danger-action:active {
+  box-shadow: -0.1rem 0.1rem 0 var(--accent);
+  transform: translate(0.1rem, -0.1rem) scale(0.99);
 }
 .danger-action {
   color: var(--accent-dark);
-}
-.danger-action:hover {
-  border-color: var(--accent);
-  background: rgba(240, 90, 60, 0.06);
 }
 
 .game-actions-dock {
@@ -809,13 +883,6 @@ legend,
     box-shadow 160ms ease,
     background 160ms ease;
 }
-.dock-side-action:hover {
-  background: #fffaf0;
-  box-shadow:
-    -0.3rem 0.3rem 0 var(--accent),
-    0 0.9rem 1.8rem rgba(0, 0, 0, 0.42);
-  transform: translate(0.3rem, -0.3rem);
-}
 .dock-side-action:active {
   box-shadow: -0.12rem 0.12rem 0 var(--accent);
   transform: translate(0.12rem, -0.12rem) scale(0.98);
@@ -835,14 +902,6 @@ legend,
     transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
     box-shadow 180ms ease,
     background 180ms ease;
-}
-.dock-play-action:hover {
-  background: #ff7b60;
-  box-shadow:
-    -0.35rem 0.35rem 0 var(--ink),
-    0 0 0 0.45rem rgba(255, 101, 71, 0.1),
-    0 1.2rem 2.6rem rgba(0, 0, 0, 0.55);
-  transform: translate(0.35rem, -0.35rem);
 }
 .dock-play-action:active {
   box-shadow:
@@ -896,11 +955,23 @@ legend,
   background: transparent;
   font-size: 0.72rem;
   font-weight: 760;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
 }
 .confirm-actions button:last-child {
   border-color: var(--accent);
   color: #120e0c;
   background: var(--accent);
+}
+.confirm-actions button:active {
+  box-shadow: -0.1rem 0.1rem 0 var(--accent);
+  transform: translate(0.1rem, -0.1rem) scale(0.99);
+}
+.confirm-actions button:last-child:active {
+  box-shadow: -0.1rem 0.1rem 0 var(--ink);
 }
 
 .previous-guesses {
@@ -1037,14 +1108,24 @@ legend,
   margin-top: 0.85rem;
 }
 .full-preview .secondary-action {
+  display: flex;
   align-self: end;
   min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
   color: var(--ink);
   border-color: rgba(255, 255, 255, 0.24);
 }
-.reveal-actions .text-control {
-  display: block;
-  margin: 0.65rem auto 0;
+.reveal-actions {
+  display: grid;
+  gap: 0.65rem;
+}
+.change-filters-action {
+  width: 100%;
+  min-height: 3.2rem;
+  color: var(--ink);
+  border-color: rgba(244, 239, 229, 0.24);
 }
 
 .sr-only {
@@ -1091,6 +1172,71 @@ legend,
   from {
     opacity: 0;
     transform: translateY(0.7rem) scale(0.98);
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .genre-chip:hover span {
+    border-color: rgba(244, 239, 229, 0.5);
+  }
+  .start-button:hover:not(:disabled) {
+    box-shadow: -0.35rem 0.35rem 0 var(--accent);
+    transform: translate(0.35rem, -0.35rem);
+  }
+  .primary-action:hover:not(:disabled) {
+    background: #ff856c;
+    box-shadow: -0.35rem 0.35rem 0 var(--ink);
+    transform: translate(0.35rem, -0.35rem);
+  }
+  .secondary-action:hover,
+  .danger-action:hover {
+    border-color: var(--accent);
+    background: rgba(255, 101, 71, 0.06);
+    box-shadow: -0.35rem 0.35rem 0 var(--accent);
+    transform: translate(0.35rem, -0.35rem);
+  }
+  .vinyl-rewind:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: rgba(9, 10, 9, 0.96);
+    box-shadow: -0.3rem 0.3rem 0 var(--accent);
+    transform: translate(0.3rem, -0.3rem);
+  }
+  .search-clear:hover {
+    color: var(--paper);
+    background: var(--ink);
+    box-shadow: -0.2rem 0.2rem 0 var(--accent);
+    transform: translate(0.2rem, calc(-50% - 0.2rem));
+  }
+  .search-results button:hover {
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: -0.2rem 0.2rem 0 var(--accent);
+    transform: translate(0.2rem, -0.2rem);
+  }
+  .dock-side-action:hover {
+    background: #fffaf0;
+    box-shadow:
+      -0.35rem 0.35rem 0 var(--accent),
+      0 0.9rem 1.8rem rgba(0, 0, 0, 0.42);
+    transform: translate(0.35rem, -0.35rem);
+  }
+  .dock-play-action:hover {
+    background: #ff7b60;
+    box-shadow:
+      -0.35rem 0.35rem 0 var(--ink),
+      0 0 0 0.45rem rgba(255, 101, 71, 0.1),
+      0 1.2rem 2.6rem rgba(0, 0, 0, 0.55);
+    transform: translate(0.35rem, -0.35rem);
+  }
+  .confirm-actions button:hover {
+    border-color: var(--accent);
+    background: rgba(255, 101, 71, 0.06);
+    box-shadow: -0.35rem 0.35rem 0 var(--accent);
+    transform: translate(0.35rem, -0.35rem);
+  }
+  .confirm-actions button:last-child:hover {
+    background: #ff856c;
+    box-shadow: -0.35rem 0.35rem 0 var(--ink);
   }
 }
 
@@ -1146,10 +1292,13 @@ legend,
   }
   .listening-card {
     padding-top: 0.9rem;
-    padding-bottom: 1.2rem;
+    padding-bottom: 0.8rem;
   }
   .vinyl-progress {
-    width: min(66vw, 17rem);
+    width: min(60vw, 15rem);
+  }
+  .volume-control {
+    margin-top: 0.45rem;
   }
   .game-actions-dock {
     grid-template-columns: 1fr 5.8rem 1fr;

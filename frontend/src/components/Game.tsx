@@ -67,6 +67,7 @@ export default function Game() {
   const [isRevealLoading, setIsRevealLoading] = useState(false);
   const [isRevealConfirmOpen, setIsRevealConfirmOpen] = useState(false);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [volume, setVolume] = useState(0.8);
   const [audioError, setAudioError] = useState("");
   const [appError, setAppError] = useState("");
   const [query, setQuery] = useState("");
@@ -129,6 +130,10 @@ export default function Game() {
     setIsAudioPlaying(false);
     setAudioError("");
   }, [previewUrl]);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = volume;
+  }, [volume]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -462,6 +467,7 @@ export default function Game() {
                   isPlaying={isAudioPlaying}
                   onRewind={rewindSnippet}
                 />
+                <VolumeControl volume={volume} onChange={setVolume} />
                 {audioError && <p className="inline-error">{audioError}</p>}
               </section>
 
@@ -806,11 +812,51 @@ function VinylProgress({ attempt, progressPercent, isPlaying, onRewind }: VinylP
         })}
       </svg>
       <button className="vinyl-rewind" type="button" onClick={onRewind} aria-label="Rewind clue">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M8.3 7.5H4.5V3.7M4.8 7.1A8 8 0 1 1 4 13" />
-        </svg>
+        <ReplayIcon />
       </button>
     </div>
+  );
+}
+
+type VolumeControlProps = {
+  volume: number;
+  onChange: (volume: number) => void;
+};
+
+function VolumeControl({ volume, onChange }: VolumeControlProps) {
+  const percentage = Math.round(volume * 100);
+  const trackStyle = { "--volume-level": `${percentage}%` } as CSSProperties;
+
+  return (
+    <div className="volume-control" style={trackStyle}>
+      <svg className="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 10v4h4l5 4V6l-5 4H4Z" />
+        {volume > 0 && <path d="M16 9.5a4 4 0 0 1 0 5" />}
+        {volume > 0.5 && <path d="M18.5 7a7.5 7.5 0 0 1 0 10" />}
+      </svg>
+      <label className="sr-only" htmlFor="playback-volume">
+        Playback volume
+      </label>
+      <input
+        id="playback-volume"
+        type="range"
+        min="0"
+        max="100"
+        step="1"
+        value={percentage}
+        aria-valuetext={`${percentage} percent`}
+        onChange={(event) => onChange(Number(event.target.value) / 100)}
+      />
+      <output htmlFor="playback-volume">{percentage}%</output>
+    </div>
+  );
+}
+
+function ReplayIcon() {
+  return (
+    <svg className="replay-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8.3 7.5H4.5V3.7M4.8 7.1A8 8 0 1 1 4 13" />
+    </svg>
   );
 }
 
@@ -876,8 +922,9 @@ function RevealCard({
               <button className="primary-action" type="button" onClick={onTogglePreview}>
                 {isPlaying ? "Pause preview" : "Play full preview"}
               </button>
-              <button className="secondary-action" type="button" onClick={onReplay}>
-                ↶ Replay
+              <button className="secondary-action replay-action" type="button" onClick={onReplay}>
+                <ReplayIcon />
+                <span>Replay</span>
               </button>
             </div>
             {audioError && <p className="inline-error">{audioError}</p>}
@@ -889,7 +936,11 @@ function RevealCard({
           <span>Next song</span>
           <span aria-hidden="true">→</span>
         </button>
-        <button className="text-control" type="button" onClick={onChangeFilters}>
+        <button
+          className="secondary-action change-filters-action"
+          type="button"
+          onClick={onChangeFilters}
+        >
           Change filters
         </button>
       </div>
