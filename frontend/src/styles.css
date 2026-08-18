@@ -499,7 +499,7 @@ legend,
   stroke-linecap: round;
   transform: rotate(-90deg);
   transform-origin: center;
-  transition: stroke-dasharray 90ms linear;
+  transition: stroke-dashoffset 50ms linear;
 }
 .vinyl-ring-cut {
   stroke: var(--paper);

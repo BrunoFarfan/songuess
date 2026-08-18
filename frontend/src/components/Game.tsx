@@ -178,18 +178,18 @@ export default function Game() {
   }, [phase, unlockedDuration]);
 
   useEffect(() => {
-    if (!isAudioPlaying) return;
-
+    if (phase !== "playing") return;
     let animationFrame = 0;
     const syncPlaybackCursor = () => {
       const audio = audioRef.current;
-      if (!audio || audio.paused) return;
-      setPlaybackCursor(Math.min(audio.currentTime, unlockedDuration));
+      if (audio && !audio.paused) {
+        setPlaybackCursor(Math.min(audio.currentTime, unlockedDuration));
+      }
       animationFrame = window.requestAnimationFrame(syncPlaybackCursor);
     };
     animationFrame = window.requestAnimationFrame(syncPlaybackCursor);
     return () => window.cancelAnimationFrame(animationFrame);
-  }, [isAudioPlaying, unlockedDuration]);
+  }, [phase, unlockedDuration]);
 
   useEffect(() => {
     if (phase !== "playing" || query.trim().length < 2 || selectedGuess) {
@@ -774,6 +774,9 @@ type VinylProgressProps = {
 
 function VinylProgress({ attempt, progressPercent, isPlaying, onRewind }: VinylProgressProps) {
   const center = 120;
+  const ringRadius = 106;
+  const circumference = 2 * Math.PI * ringRadius;
+  const progressOffset = circumference * (1 - progressPercent / 100);
   const tickInnerRadius = 101;
   const tickOuterRadius = 111;
   const totalDuration = SNIPPET_DURATIONS[SNIPPET_DURATIONS.length - 1];
@@ -788,14 +791,14 @@ function VinylProgress({ attempt, progressPercent, isPlaying, onRewind }: VinylP
         <span />
       </div>
       <svg className="vinyl-progress-ring" viewBox="0 0 240 240" aria-hidden="true">
-        <circle className="vinyl-ring-base" cx={center} cy={center} r="106" pathLength="100" />
+        <circle className="vinyl-ring-base" cx={center} cy={center} r={ringRadius} />
         <circle
           className="vinyl-ring-fill"
           cx={center}
           cy={center}
-          r="106"
-          pathLength="100"
-          style={{ strokeDasharray: `${progressPercent} ${100 - progressPercent}` }}
+          r={ringRadius}
+          strokeDasharray={circumference}
+          strokeDashoffset={progressOffset}
         />
         {SNIPPET_DURATIONS.slice(0, -1).map((duration) => {
           const angle = (duration / totalDuration) * Math.PI * 2 - Math.PI / 2;

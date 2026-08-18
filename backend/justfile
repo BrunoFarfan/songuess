@@ -4,20 +4,13 @@ default:
 
 # Fix lint issues, format the backend, and verify it is clean.
 lint:
-  uv run ruff check app ../dataset --fix
-  uv run ruff format app ../dataset
-  uv run ruff check app ../dataset
+  uv run ruff check app tests ../dataset --fix
+  uv run ruff format app tests ../dataset
+  uv run ruff check app tests ../dataset
 
-# Run all backend tests, accepting the intentionally empty suite.
+# Run all backend and importer tests.
 test:
-  #!/usr/bin/env bash
-  uv run pytest
-  status=$?
-  if [ "$status" -eq 5 ]; then
-    echo "No backend tests found yet."
-    exit 0
-  fi
-  exit "$status"
+  cd .. && uv run --project backend pytest backend/tests
 
 # Start the FastAPI development server.
 dev:
@@ -26,3 +19,19 @@ dev:
 # Build the local catalog from ListenBrainz, MusicBrainz, and Apple.
 populate *args:
   cd .. && uv run --project backend python -m dataset.populate {{args}}
+
+# Snapshot enabled catalog identities before a population run.
+snapshot-catalog path:
+  cd .. && uv run --project backend python -m dataset.verify --snapshot {{path}}
+
+# Verify exact totals, unique identities, previews, preservation, and year distribution.
+verify-catalog *args:
+  cd .. && uv run --project backend python -m dataset.verify {{args}}
+
+# Incrementally populate the first requested milestone.
+populate-5000:
+  cd .. && uv run --project backend python -m dataset.populate --target-total 5000 --candidates 11000 --year-min 1950 --year-max 2026 --artist-count 1000 --recordings-per-artist 60
+
+# Incrementally resume toward the full requested catalog.
+populate-25000:
+  cd .. && uv run --project backend python -m dataset.populate --target-total 25000 --candidates 45000 --year-min 1950 --year-max 2026 --artist-count 1000 --recordings-per-artist 60

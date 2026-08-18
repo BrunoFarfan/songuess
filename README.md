@@ -59,13 +59,27 @@ Available runtime endpoints:
 - `GET /api/songs/search?q=...`
 - `GET /api/songs/{id}`
 
-To populate the local database with 1,000 validated popular songs released from 2006 through 2026:
+Population is incremental: `--target-total` is the desired final enabled-song count, not the
+number of songs to add. For example, to reach exactly 5,000 validated songs from 1950 through
+2026 while preserving the current catalog:
 
 ```bash
-just populate
+just populate-5000
 ```
 
-The importer merges ListenBrainz's sitewide charts from all-time through weekly windows, then fills any overflow from popularity-bounded recordings by its top artists. It enriches recording IDs and first-release metadata through MusicBrainz, confidently matches Apple tracks, verifies each real preview URL, normalizes popularity to 0–100, and performs idempotent catalog upserts. Responses are cached in the ignored `dataset/cache/` directory so interrupted runs can resume. Use `just populate --help` for country, date, candidate-count, and replacement options. No API credentials are required; MusicBrainz requests follow its public one-request-per-second limit and Apple searches are kept below 20 requests per minute.
+The importer merges ListenBrainz's precomputed top 1,000 sitewide charts from all-time through
+weekly windows with recordings from up to 1,000 naturally ranked artists, then globally ranks the
+deduplicated candidates by listen count. It enriches recording IDs through a resumable MusicBrainz
+SQLite cache, confidently matches Apple tracks, validates previews with bounded concurrency, and
+performs idempotent upserts deduplicated by both MusicBrainz and Apple IDs. Cached negative Apple
+matches expire, transient preview failures remain retryable, and popularity is normalized over the
+entire enabled catalog. No decade quotas or weights are applied.
+
+Use `just populate --help` for custom totals and ranges. `just snapshot-catalog <path>` records the
+current identities, while `just verify-catalog --target-total <count> --preserve-snapshot <path>`
+checks exact totals, preservation, unique IDs, previews, and the unmodified year distribution. The
+`populate-25000` recipe resumes toward the full catalog. No API credentials are required;
+MusicBrainz remains at one request per second and Apple remains below 20 requests per minute.
 
 ## Frontend
 
@@ -94,8 +108,7 @@ The React island implements:
 ## Checks
 
 Each service exposes the same task-runner interface. `lint` formats and checks the code, while
-`test` runs the configured test runner and exits successfully when the intentionally empty suite
-has no tests yet:
+`test` runs the configured test suite:
 
 ```bash
 cd backend
