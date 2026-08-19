@@ -82,6 +82,8 @@ export default function Game() {
   const roundGenerationRef = useRef(0);
   const unlockedDuration = SNIPPET_DURATIONS[attempt];
 
+  useButtonFeedback();
+
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [phase]);
@@ -144,14 +146,9 @@ export default function Game() {
     if (!audio) return;
 
     const handleTimeUpdate = () => {
-      if (phase === "playing" && audio.currentTime >= unlockedDuration - 0.025) {
-        audio.pause();
-        audio.currentTime = unlockedDuration;
-        setPlaybackCursor(unlockedDuration);
-        setIsAudioPlaying(false);
-        return;
-      }
-      setPlaybackCursor(audio.currentTime);
+      setPlaybackCursor(
+        phase === "playing" ? Math.min(audio.currentTime, unlockedDuration) : audio.currentTime,
+      );
     };
     const handlePause = () => setIsAudioPlaying(false);
     const handlePlay = () => setIsAudioPlaying(true);
@@ -182,18 +179,25 @@ export default function Game() {
   }, [phase, unlockedDuration]);
 
   useEffect(() => {
-    if (phase !== "playing") return;
+    if (phase !== "playing" || !isAudioPlaying) return;
     let animationFrame = 0;
     const syncPlaybackCursor = () => {
       const audio = audioRef.current;
-      if (audio && !audio.paused) {
-        setPlaybackCursor(Math.min(audio.currentTime, unlockedDuration));
+      if (!audio || audio.paused) return;
+
+      const currentTime = Math.min(audio.currentTime, unlockedDuration);
+      setPlaybackCursor(currentTime);
+      if (audio.currentTime >= unlockedDuration - 0.01) {
+        audio.pause();
+        audio.currentTime = unlockedDuration;
+        setPlaybackCursor(unlockedDuration);
+        return;
       }
       animationFrame = window.requestAnimationFrame(syncPlaybackCursor);
     };
-    animationFrame = window.requestAnimationFrame(syncPlaybackCursor);
+    syncPlaybackCursor();
     return () => window.cancelAnimationFrame(animationFrame);
-  }, [phase, unlockedDuration]);
+  }, [isAudioPlaying, phase, unlockedDuration]);
 
   useEffect(() => {
     if (phase !== "playing" || query.trim().length < 2 || selectedGuess) {
@@ -371,12 +375,6 @@ export default function Game() {
   }
 
   function advanceAttempt() {
-    const audio = audioRef.current;
-    if (audio) {
-      audio.pause();
-      audio.currentTime = unlockedDuration;
-    }
-    setPlaybackCursor(unlockedDuration);
     setSelectedGuess(null);
     setQuery("");
     setSearchResults([]);
@@ -432,6 +430,15 @@ export default function Game() {
     }));
   }
 
+  function toggleCountry(country: string) {
+    setDraftFilters((filters) => ({
+      ...filters,
+      countries: filters.countries.includes(country)
+        ? filters.countries.filter((item) => item !== country)
+        : [...filters.countries, country],
+    }));
+  }
+
   return (
     <section className="game-shell" aria-live="polite">
       <header className="brand-lockup">
@@ -450,6 +457,7 @@ export default function Game() {
           loading={phase === "loading"}
           onFiltersChange={setDraftFilters}
           onGenreToggle={toggleGenre}
+          onCountryToggle={toggleCountry}
           onPlay={beginGame}
         />
       ) : (
@@ -459,7 +467,7 @@ export default function Game() {
               {[
                 activeFilters.genres.length ? activeFilters.genres.join(" · ") : "All genres",
                 activeFilters.countries.length
-                  ? activeFilters.countries.map(countryLabel).join(" · ")
+                  ? activeFilters.countries.map(countryDisplay).join(" · ")
                   : "All origins",
               ].join(" — ")}
             </span>
@@ -582,40 +590,38 @@ export default function Game() {
                 </section>
               )}
 
-              {searchResults.length === 0 && (
-                <nav className="game-actions-dock" aria-label="Round controls">
-                  <button
-                    className="dock-side-action dock-reveal"
-                    type="button"
-                    onClick={() => setIsRevealConfirmOpen(true)}
-                  >
-                    Reveal
-                  </button>
-                  <button
-                    className={`dock-play-action${isAudioPlaying ? " is-playing" : ""}`}
-                    type="button"
-                    onClick={toggleSnippetPlayback}
-                    aria-label={isAudioPlaying ? "Pause clue" : "Play clue"}
-                  >
-                    {isAudioPlaying ? (
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
-                      </svg>
-                    ) : (
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="m8 5 11 7-11 7V5Z" />
-                      </svg>
-                    )}
-                  </button>
-                  <button
-                    className="dock-side-action dock-skip"
-                    type="button"
-                    onClick={advanceAttempt}
-                  >
-                    Next clue
-                  </button>
-                </nav>
-              )}
+              <nav className="game-actions-dock" aria-label="Round controls">
+                <button
+                  className="dock-side-action dock-reveal"
+                  type="button"
+                  onClick={() => setIsRevealConfirmOpen(true)}
+                >
+                  Reveal
+                </button>
+                <button
+                  className={`dock-play-action${isAudioPlaying ? " is-playing" : ""}`}
+                  type="button"
+                  onClick={toggleSnippetPlayback}
+                  aria-label={isAudioPlaying ? "Pause clue" : "Play clue"}
+                >
+                  {isAudioPlaying ? (
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="m8 5 11 7-11 7V5Z" />
+                    </svg>
+                  )}
+                </button>
+                <button
+                  className="dock-side-action dock-skip"
+                  type="button"
+                  onClick={advanceAttempt}
+                >
+                  Next clue
+                </button>
+              </nav>
 
               {isRevealConfirmOpen && (
                 <div
@@ -656,7 +662,6 @@ export default function Game() {
                 if (isAudioPlaying) audioRef.current?.pause();
                 else void playFullPreview();
               }}
-              onReplay={() => void playFullPreview(true)}
               onNext={() => void startRound(activeFilters)}
               onChangeFilters={() => {
                 ++roundGenerationRef.current;
@@ -673,6 +678,54 @@ export default function Game() {
   );
 }
 
+function useButtonFeedback() {
+  useEffect(() => {
+    const timers = new Map<HTMLButtonElement, number>();
+
+    const showFeedback = (button: HTMLButtonElement, kind: "tap" | "click") => {
+      const activeTimer = timers.get(button);
+      if (activeTimer !== undefined) window.clearTimeout(activeTimer);
+
+      button.dataset.buttonFeedback = kind;
+      const timer = window.setTimeout(
+        () => {
+          delete button.dataset.buttonFeedback;
+          timers.delete(button);
+        },
+        kind === "tap" ? 500 : 220,
+      );
+      timers.set(button, timer);
+    };
+
+    const buttonFromEvent = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return null;
+      const button = target.closest("button");
+      return button instanceof HTMLButtonElement && !button.disabled ? button : null;
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      const button = buttonFromEvent(event);
+      if (!button) return;
+      showFeedback(button, event.pointerType === "touch" ? "tap" : "click");
+    };
+
+    const handleKeyboardClick = (event: MouseEvent) => {
+      if (event.detail !== 0) return;
+      const button = buttonFromEvent(event);
+      if (button) showFeedback(button, "click");
+    };
+
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("click", handleKeyboardClick);
+    return () => {
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("click", handleKeyboardClick);
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, []);
+}
+
 type SetupScreenProps = {
   filters: Filters;
   metadata: FilterMetadata | null;
@@ -680,6 +733,7 @@ type SetupScreenProps = {
   loading: boolean;
   onFiltersChange: (filters: Filters) => void;
   onGenreToggle: (genre: string) => void;
+  onCountryToggle: (country: string) => void;
   onPlay: () => void;
 };
 
@@ -690,8 +744,62 @@ function SetupScreen({
   loading,
   onFiltersChange,
   onGenreToggle,
+  onCountryToggle,
   onPlay,
 }: SetupScreenProps) {
+  const [genreQuery, setGenreQuery] = useState("");
+  const visibleGenres = useMemo(() => {
+    const prefix = genreQuery.trim().toLocaleLowerCase();
+    if (!prefix) return metadata?.genres ?? [];
+    return (metadata?.genres ?? []).filter((genre) => genre.toLocaleLowerCase().startsWith(prefix));
+  }, [genreQuery, metadata?.genres]);
+  const [displayedGenres, setDisplayedGenres] = useState<string[]>([]);
+  const [genreTransition, setGenreTransition] = useState<"idle" | "out" | "in">("idle");
+  const [countryQuery, setCountryQuery] = useState("");
+  const countryOptions = useMemo(
+    () =>
+      (metadata?.countries ?? [])
+        .map((code) => ({ code, name: countryLabel(code), flag: countryFlag(code) }))
+        .sort((first, second) => first.name.localeCompare(second.name)),
+    [metadata?.countries],
+  );
+  const visibleCountries = useMemo(
+    () => filterCountryOptions(countryOptions, countryQuery),
+    [countryOptions, countryQuery],
+  );
+  const [displayedCountries, setDisplayedCountries] = useState<CountryOption[]>([]);
+  const [countryTransition, setCountryTransition] = useState<"idle" | "out" | "in">("idle");
+
+  useEffect(() => {
+    let settleTimer: number | undefined;
+    setGenreTransition("out");
+    const swapTimer = window.setTimeout(() => {
+      setDisplayedGenres(visibleGenres);
+      setGenreTransition("in");
+      settleTimer = window.setTimeout(() => setGenreTransition("idle"), 150);
+    }, 100);
+
+    return () => {
+      window.clearTimeout(swapTimer);
+      if (settleTimer !== undefined) window.clearTimeout(settleTimer);
+    };
+  }, [visibleGenres]);
+
+  useEffect(() => {
+    let settleTimer: number | undefined;
+    setCountryTransition("out");
+    const swapTimer = window.setTimeout(() => {
+      setDisplayedCountries(visibleCountries);
+      setCountryTransition("in");
+      settleTimer = window.setTimeout(() => setCountryTransition("idle"), 150);
+    }, 100);
+
+    return () => {
+      window.clearTimeout(swapTimer);
+      if (settleTimer !== undefined) window.clearTimeout(settleTimer);
+    };
+  }, [visibleCountries]);
+
   return (
     <section className="setup-card" aria-labelledby="setup-heading">
       <div className="setup-intro">
@@ -709,50 +817,107 @@ function SetupScreen({
         {(metadata === null || metadata.genres.length > 0) && (
           <fieldset>
             <legend>Genres</legend>
-            <div className="genre-grid">
-              {metadata === null ? (
-                <span className="muted">Loading…</span>
-              ) : (
-                metadata.genres.map((genre) => (
-                  <label className="genre-chip" key={genre}>
-                    <input
-                      type="checkbox"
-                      checked={filters.genres.includes(genre)}
-                      onChange={() => onGenreToggle(genre)}
-                    />
+            <div className="filter-search">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="10.8" cy="10.8" r="6.3" />
+                <path d="m15.5 15.5 4.2 4.2" />
+              </svg>
+              <label className="sr-only" htmlFor="genre-search">
+                Filter genres
+              </label>
+              <input
+                id="genre-search"
+                type="search"
+                value={genreQuery}
+                placeholder="Find genre"
+                autoComplete="off"
+                onChange={(event) => setGenreQuery(event.target.value)}
+                aria-controls="genre-options"
+              />
+            </div>
+            <div className="genre-grid-frame">
+              <div className="genre-grid genre-grid-measure" aria-hidden="true">
+                {metadata?.genres.map((genre) => (
+                  <span className="genre-chip" key={genre}>
                     <span>{genre}</span>
-                  </label>
-                ))
-              )}
+                  </span>
+                ))}
+              </div>
+              <div
+                className={`genre-grid genre-grid-filtered is-filtering-${genreTransition}`}
+                id="genre-options"
+                aria-live="polite"
+              >
+                {metadata === null ? (
+                  <span className="muted">Loading…</span>
+                ) : displayedGenres.length === 0 ? (
+                  <span className="muted">No matching genres</span>
+                ) : (
+                  displayedGenres.map((genre) => (
+                    <label className="genre-chip" key={genre}>
+                      <input
+                        type="checkbox"
+                        checked={filters.genres.includes(genre)}
+                        onChange={() => onGenreToggle(genre)}
+                      />
+                      <span>{genre}</span>
+                    </label>
+                  ))
+                )}
+              </div>
             </div>
           </fieldset>
         )}
 
         {(metadata === null || metadata.countries.length > 0) && (
-          <div className="origin-section">
-            <label htmlFor="origin-country">Artist origin</label>
-            <div className="origin-select-wrap">
-              <select
-                id="origin-country"
-                value={filters.countries[0] ?? ""}
-                disabled={metadata === null}
-                onChange={(event) =>
-                  onFiltersChange({
-                    ...filters,
-                    countries: event.target.value ? [event.target.value] : [],
-                  })
-                }
-              >
-                <option value="">{metadata === null ? "Loading…" : "Anywhere"}</option>
-                {metadata?.countries.map((country) => (
-                  <option value={country} key={country}>
-                    {countryLabel(country)} · {country}
-                  </option>
-                ))}
-              </select>
-              <span aria-hidden="true">↓</span>
+          <fieldset className="country-filter">
+            <legend>Artist origin</legend>
+            <div className="filter-search">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="10.8" cy="10.8" r="6.3" />
+                <path d="m15.5 15.5 4.2 4.2" />
+              </svg>
+              <label className="sr-only" htmlFor="country-search">
+                Filter countries
+              </label>
+              <input
+                id="country-search"
+                type="search"
+                value={countryQuery}
+                placeholder="Find country"
+                autoComplete="off"
+                onChange={(event) => setCountryQuery(event.target.value)}
+                aria-controls="country-options"
+              />
             </div>
-          </div>
+            <div className="country-grid-frame">
+              <div
+                className={`genre-grid country-grid is-filtering-${countryTransition}`}
+                id="country-options"
+                aria-live="polite"
+              >
+                {metadata === null ? (
+                  <span className="muted">Loading…</span>
+                ) : displayedCountries.length === 0 ? (
+                  <span className="muted">No matching countries</span>
+                ) : (
+                  displayedCountries.map(({ code, name, flag }) => (
+                    <label className="genre-chip country-chip" key={code}>
+                      <input
+                        type="checkbox"
+                        checked={filters.countries.includes(code)}
+                        onChange={() => onCountryToggle(code)}
+                      />
+                      <span>
+                        <b aria-hidden="true">{flag}</b>
+                        {name}
+                      </span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+          </fieldset>
         )}
 
         <div className="range-section">
@@ -804,8 +969,29 @@ function SetupScreen({
 
 const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
 
-function countryLabel(code: string): string {
+export type CountryOption = { code: string; name: string; flag: string };
+
+export function countryLabel(code: string): string {
   return regionNames.of(code) ?? code;
+}
+
+export function countryFlag(code: string): string {
+  return [...code.toUpperCase()]
+    .map((letter) => String.fromCodePoint(127397 + letter.charCodeAt(0)))
+    .join("");
+}
+
+function countryDisplay(code: string): string {
+  return `${countryFlag(code)} ${countryLabel(code)}`;
+}
+
+export function filterCountryOptions(countries: CountryOption[], query: string): CountryOption[] {
+  const prefix = query.trim().toLocaleLowerCase();
+  if (!prefix) return countries;
+  return countries.filter(
+    ({ code, name }) =>
+      code.toLocaleLowerCase().startsWith(prefix) || name.toLocaleLowerCase().startsWith(prefix),
+  );
 }
 
 type VinylProgressProps = {
@@ -818,8 +1004,7 @@ type VinylProgressProps = {
 function VinylProgress({ attempt, progressPercent, isPlaying, onRewind }: VinylProgressProps) {
   const center = 120;
   const ringRadius = 106;
-  const circumference = 2 * Math.PI * ringRadius;
-  const progressOffset = circumference * (1 - progressPercent / 100);
+  const progressOffset = 100 - progressPercent;
   const tickInnerRadius = 101;
   const tickOuterRadius = 111;
   const totalDuration = SNIPPET_DURATIONS[SNIPPET_DURATIONS.length - 1];
@@ -840,10 +1025,11 @@ function VinylProgress({ attempt, progressPercent, isPlaying, onRewind }: VinylP
           cx={center}
           cy={center}
           r={ringRadius}
-          strokeDasharray={circumference}
+          pathLength="100"
+          strokeDasharray="100"
           strokeDashoffset={progressOffset}
         />
-        {SNIPPET_DURATIONS.slice(0, -1).map((duration) => {
+        {[0, ...SNIPPET_DURATIONS.slice(0, -1)].map((duration) => {
           const angle = (duration / totalDuration) * Math.PI * 2 - Math.PI / 2;
           return (
             <line
@@ -914,7 +1100,6 @@ type RevealCardProps = {
   audioError: string;
   isPlaying: boolean;
   onTogglePreview: () => void;
-  onReplay: () => void;
   onNext: () => void;
   onChangeFilters: () => void;
 };
@@ -927,7 +1112,6 @@ function RevealCard({
   audioError,
   isPlaying,
   onTogglePreview,
-  onReplay,
   onNext,
   onChangeFilters,
 }: RevealCardProps) {
@@ -967,10 +1151,6 @@ function RevealCard({
             <div className="full-preview-controls">
               <button className="primary-action" type="button" onClick={onTogglePreview}>
                 {isPlaying ? "Pause preview" : "Play full preview"}
-              </button>
-              <button className="secondary-action replay-action" type="button" onClick={onReplay}>
-                <ReplayIcon />
-                <span>Replay</span>
               </button>
             </div>
             {audioError && <p className="inline-error">{audioError}</p>}

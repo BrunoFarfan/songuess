@@ -56,9 +56,21 @@ input {
   font: inherit;
 }
 button {
+  position: relative;
   color: inherit;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+}
+button::after {
+  position: absolute;
+  z-index: 4;
+  inset: -0.28rem;
+  border: 3px solid var(--mint);
+  border-radius: inherit;
+  box-shadow: 0 0 0 0.18rem rgba(140, 201, 179, 0.24);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
 }
 button:focus-visible,
 input:focus-visible {
@@ -204,56 +216,103 @@ fieldset {
   border-bottom: 1px solid var(--line);
 }
 legend,
-.range-heading h2,
-.origin-section > label {
+.range-heading h2 {
   padding: 0;
   font-family: "Fraunces Variable", serif;
   font-size: 1.15rem;
   font-weight: 620;
 }
-.origin-section {
-  display: grid;
-  grid-template-columns: auto minmax(10rem, 1fr);
-  align-items: center;
-  gap: 1rem;
-  padding: 1.2rem 0;
-  border-bottom: 1px solid var(--line);
-}
-.origin-select-wrap {
+.filter-search {
   position: relative;
+  width: min(100%, 13rem);
+  margin-top: 0.7rem;
+  color: var(--muted);
 }
-.origin-select-wrap select {
-  width: 100%;
-  min-height: 2.8rem;
-  padding: 0.65rem 2.4rem 0.65rem 0.8rem;
-  appearance: none;
-  border: 1px solid var(--line);
-  border-radius: 0.2rem;
-  color: var(--ink);
-  background: rgba(255, 255, 255, 0.02);
-  font: inherit;
-  font-size: 0.78rem;
-  cursor: pointer;
-}
-.origin-select-wrap select:focus-visible {
-  outline: 3px solid var(--mint);
-  outline-offset: 3px;
-}
-.origin-select-wrap > span {
+.filter-search svg {
   position: absolute;
   top: 50%;
-  right: 0.85rem;
-  color: var(--accent);
-  font-size: 0.8rem;
+  left: 0.1rem;
+  width: 0.9rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.7;
   pointer-events: none;
   transform: translateY(-50%);
+}
+.filter-search input {
+  width: 100%;
+  padding: 0.4rem 0.15rem 0.4rem 1.4rem;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--ink);
+  background: transparent;
+  font-size: 0.72rem;
+  transition: border-color 160ms ease;
+}
+.filter-search input::placeholder {
+  color: var(--muted);
+}
+.filter-search input:focus-visible {
+  border-color: var(--mint);
+  outline: 0;
+}
+.filter-search input::-webkit-search-cancel-button {
+  cursor: pointer;
+  filter: invert(1);
+  opacity: 0.6;
+}
+.genre-grid-frame {
+  position: relative;
+  margin-top: 0.75rem;
 }
 .genre-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
   min-height: 1rem;
+  align-content: flex-start;
+}
+.genre-grid-measure {
+  visibility: hidden;
+}
+.genre-grid-filtered {
+  position: absolute;
+  inset: 0;
+  transition:
+    opacity 100ms ease,
+    transform 100ms ease;
+}
+.genre-grid-filtered.is-filtering-out {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(0.2rem);
+}
+.genre-grid-filtered.is-filtering-in {
+  animation: genre-filter-in 150ms ease both;
+}
+.country-grid-frame {
+  max-height: 8.25rem;
   margin-top: 0.75rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--accent) transparent;
+  scrollbar-width: thin;
+}
+.country-grid {
+  padding: 0.1rem 0.15rem 0.35rem 0;
+  transition:
+    opacity 100ms ease,
+    transform 100ms ease;
+}
+.country-grid.is-filtering-out {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(0.2rem);
+}
+.country-grid.is-filtering-in {
+  animation: genre-filter-in 150ms ease both;
 }
 .genre-chip {
   cursor: pointer;
@@ -281,6 +340,17 @@ legend,
 .genre-chip input:focus-visible + span {
   outline: 3px solid var(--mint);
   outline-offset: 3px;
+}
+.country-chip span {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  text-transform: none;
+}
+.country-chip b {
+  font-size: 0.95rem;
+  font-weight: 400;
+  line-height: 1;
 }
 .muted {
   color: var(--muted);
@@ -325,7 +395,7 @@ legend,
   top: 50%;
   right: 0.5rem;
   left: 0.5rem;
-  height: 0.22rem;
+  height: 0.38rem;
   border-radius: 99rem;
   background: linear-gradient(
     to right,
@@ -346,13 +416,13 @@ legend,
   background: transparent;
 }
 .dual-range-input::-webkit-slider-runnable-track {
-  height: 0.22rem;
+  height: 0.38rem;
   background: transparent;
 }
 .dual-range-input::-webkit-slider-thumb {
-  width: 1.1rem;
-  height: 1.1rem;
-  margin-top: -0.44rem;
+  width: 1.2rem;
+  height: 1.2rem;
+  margin-top: -0.41rem;
   appearance: none;
   border: 3px solid var(--cream);
   border-radius: 50%;
@@ -362,12 +432,12 @@ legend,
   cursor: grab;
 }
 .dual-range-input::-moz-range-track {
-  height: 0.22rem;
+  height: 0.38rem;
   background: transparent;
 }
 .dual-range-input::-moz-range-thumb {
-  width: 0.8rem;
-  height: 0.8rem;
+  width: 0.9rem;
+  height: 0.9rem;
   border: 3px solid var(--cream);
   border-radius: 50%;
   background: var(--accent);
@@ -527,7 +597,7 @@ legend,
 .vinyl-ring-base,
 .vinyl-ring-fill {
   fill: none;
-  stroke-width: 3.2;
+  stroke-width: 4;
 }
 .vinyl-ring-base {
   stroke: rgba(244, 239, 229, 0.66);
@@ -537,7 +607,6 @@ legend,
   stroke-linecap: round;
   transform: rotate(-90deg);
   transform-origin: center;
-  transition: stroke-dashoffset 50ms linear;
 }
 .vinyl-ring-cut {
   stroke: var(--paper);
@@ -607,7 +676,7 @@ legend,
   cursor: pointer;
 }
 .volume-control input::-webkit-slider-runnable-track {
-  height: 0.18rem;
+  height: 0.34rem;
   border-radius: 99rem;
   background: linear-gradient(
     to right,
@@ -616,9 +685,9 @@ legend,
   );
 }
 .volume-control input::-webkit-slider-thumb {
-  width: 0.9rem;
-  height: 0.9rem;
-  margin-top: -0.36rem;
+  width: 1rem;
+  height: 1rem;
+  margin-top: -0.33rem;
   appearance: none;
   border: 2px solid var(--paper);
   border-radius: 50%;
@@ -626,7 +695,7 @@ legend,
   box-shadow: 0 0 0 1px var(--ink);
 }
 .volume-control input::-moz-range-track {
-  height: 0.18rem;
+  height: 0.34rem;
   border-radius: 99rem;
   background: linear-gradient(
     to right,
@@ -635,8 +704,8 @@ legend,
   );
 }
 .volume-control input::-moz-range-thumb {
-  width: 0.68rem;
-  height: 0.68rem;
+  width: 0.78rem;
+  height: 0.78rem;
   border: 2px solid var(--paper);
   border-radius: 50%;
   background: var(--ink);
@@ -723,13 +792,14 @@ legend,
 }
 .search-results {
   position: absolute;
-  z-index: 10;
+  z-index: 40;
   top: calc(100% + 0.35rem);
   right: 0;
   left: 0;
   max-height: min(18rem, 42vh);
   margin: 0;
   padding: 0.3rem;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-color: var(--accent) var(--paper-deep);
@@ -741,10 +811,14 @@ legend,
   box-shadow: 0 16px 35px rgba(0, 0, 0, 0.38);
   list-style: none;
 }
+.search-results li {
+  min-width: 0;
+}
 .search-results button {
   display: grid;
   grid-template-columns: 2.65rem minmax(0, 1fr);
   width: 100%;
+  min-width: 0;
   gap: 0.7rem;
   align-items: center;
   padding: 0.45rem;
@@ -1137,23 +1211,10 @@ legend,
   font-size: 1.15rem;
 }
 .full-preview-controls {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 0.5rem;
-  align-items: center;
+  display: block;
 }
 .full-preview .primary-action {
   margin-top: 0.85rem;
-}
-.full-preview .secondary-action {
-  display: flex;
-  align-self: end;
-  min-height: 3rem;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  color: var(--ink);
-  border-color: rgba(255, 255, 255, 0.24);
 }
 .reveal-actions {
   display: grid;
@@ -1278,6 +1339,94 @@ legend,
   }
 }
 
+/* Touch feedback intentionally mirrors hover for one second, without relying on sticky :hover. */
+.start-button[data-button-feedback="tap"]:not(:disabled) {
+  box-shadow: -0.35rem 0.35rem 0 var(--accent);
+  transform: translate(0.35rem, -0.35rem);
+}
+.primary-action[data-button-feedback="tap"]:not(:disabled) {
+  background: #ff856c;
+  box-shadow: -0.35rem 0.35rem 0 var(--ink);
+  transform: translate(0.35rem, -0.35rem);
+}
+.secondary-action[data-button-feedback="tap"],
+.danger-action[data-button-feedback="tap"] {
+  border-color: var(--accent);
+  background: rgba(255, 101, 71, 0.06);
+  box-shadow: -0.35rem 0.35rem 0 var(--accent);
+  transform: translate(0.35rem, -0.35rem);
+}
+.vinyl-rewind[data-button-feedback="tap"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(9, 10, 9, 0.96);
+  box-shadow: -0.3rem 0.3rem 0 var(--accent);
+  transform: translate(0.3rem, -0.3rem);
+}
+.search-clear[data-button-feedback="tap"] {
+  color: var(--paper);
+  background: var(--ink);
+  box-shadow: -0.2rem 0.2rem 0 var(--accent);
+  transform: translate(0.2rem, calc(-50% - 0.2rem));
+}
+.search-results button[data-button-feedback="tap"] {
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: -0.2rem 0.2rem 0 var(--accent);
+  transform: translate(0.2rem, -0.2rem);
+}
+.dock-side-action[data-button-feedback="tap"] {
+  background: #fffaf0;
+  box-shadow:
+    -0.35rem 0.35rem 0 var(--accent),
+    0 0.9rem 1.8rem rgba(0, 0, 0, 0.42);
+  transform: translate(0.35rem, -0.35rem);
+}
+.dock-play-action[data-button-feedback="tap"] {
+  background: #ff7b60;
+  box-shadow:
+    -0.35rem 0.35rem 0 var(--ink),
+    0 0 0 0.45rem rgba(255, 101, 71, 0.1),
+    0 1.2rem 2.6rem rgba(0, 0, 0, 0.55);
+  transform: translate(0.35rem, -0.35rem);
+}
+.confirm-actions button[data-button-feedback="tap"] {
+  border-color: var(--accent);
+  background: rgba(255, 101, 71, 0.06);
+  box-shadow: -0.35rem 0.35rem 0 var(--accent);
+  transform: translate(0.35rem, -0.35rem);
+}
+.confirm-actions button:last-child[data-button-feedback="tap"] {
+  background: #ff856c;
+  box-shadow: -0.35rem 0.35rem 0 var(--ink);
+}
+
+/* This pulse remains visible after pointer release, so desktop clicks read as clicks, not hover. */
+button[data-button-feedback="click"]::after {
+  animation: button-click-feedback 220ms ease-out both;
+}
+
+@keyframes button-click-feedback {
+  0% {
+    opacity: 1;
+    transform: scale(0.88);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.16);
+  }
+}
+
+@keyframes genre-filter-in {
+  from {
+    opacity: 0;
+    transform: translateY(-0.15rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (min-width: 42rem) {
   main {
     padding: 2rem 0;
@@ -1313,14 +1462,28 @@ legend,
     flex-direction: column;
   }
   .setup-controls > fieldset,
-  .setup-controls > .range-section,
-  .setup-controls > .origin-section {
+  .setup-controls > .range-section {
     display: flex;
-    min-height: 6rem;
-    flex: 1 1 0;
     flex-direction: column;
     justify-content: center;
     margin-top: 0;
+  }
+  .setup-controls > fieldset {
+    min-height: 9.5rem;
+    flex: 1.45 1 0;
+    overflow: hidden;
+  }
+  .setup-controls > .range-section {
+    min-height: 5.5rem;
+    flex: 0.8 1 0;
+  }
+  .genre-grid-frame,
+  .country-grid-frame {
+    max-height: 6.4rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-color: var(--accent) transparent;
+    scrollbar-width: thin;
   }
   .start-button {
     flex: 0 0 auto;
@@ -1356,12 +1519,6 @@ legend,
   .record-frame img,
   .artwork-placeholder {
     max-width: 14rem;
-  }
-  .full-preview-controls {
-    grid-template-columns: 1fr;
-  }
-  .full-preview .secondary-action {
-    min-height: 2.6rem;
   }
 }
 
