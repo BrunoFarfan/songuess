@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "generated_at": "2026-08-26T02:50:41.418239+00:00",
+  "baseline_enabled_count": 5000,
+  "new_song_count": 0,
+  "songs": [],
+  "dimensions": {
+    "artists": [],
+    "genres": [],
+    "countries": []
+  },
+  "relations": {
+    "song_artists": [],
+    "song_genres": [],
+    "song_countries": []
+  },
+  "excludes": [
+    "provider response caches",
+    "discovery manifests",
+    "population checkpoints",
+    "pipeline telemetry"
+  ]
+}

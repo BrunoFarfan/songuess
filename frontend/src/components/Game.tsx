@@ -1,7 +1,56 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import React, { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+
+import {
+  addOrUpdateRound,
+  calculatePersonalStats,
+  loadRoundHistory,
+  pointsForResult,
+  resultForRound,
+  saveRoundHistory,
+  type LocalRoundRecord,
+  type PersonalStats,
+} from "../lib/roundHistory";
+import AlbumGuessBrowser from "./AlbumGuessBrowser";
+import SetupWizard, { type ArtistOption, type SetupFilters } from "./SetupWizard";
+import Tutorial, { hasSeenTutorial } from "./Tutorial";
+import VinylSleeveReveal from "./VinylSleeveReveal";
+import "./VinylControls.css";
 
 const SNIPPET_DURATIONS = [1, 2, 4, 7, 11, 15] as const;
 const CURRENT_YEAR = new Date().getFullYear();
+
+export function potentialPointsForAttempt(attempt: number): number {
+  return Math.max(0, SNIPPET_DURATIONS.length - Math.max(0, attempt));
+}
+
+export function PotentialPoints({ attempt }: { attempt: number }) {
+  const availablePoints = potentialPointsForAttempt(attempt);
+
+  return (
+    <div
+      className="potential-points"
+      role="meter"
+      aria-label={`${availablePoints} of ${SNIPPET_DURATIONS.length} points available`}
+      aria-valuemin={0}
+      aria-valuemax={SNIPPET_DURATIONS.length}
+      aria-valuenow={availablePoints}
+    >
+      {SNIPPET_DURATIONS.map((_, index) => {
+        const active = index < availablePoints;
+        const justLost = attempt > 0 && index === availablePoints;
+        return (
+          <span
+            aria-hidden="true"
+            className={`${active ? "is-available" : "is-spent"}${justLost ? " is-lost" : ""}`}
+            key={index}
+          >
+            ★
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 type Phase = "setup" | "loading" | "playing" | "revealed";
 type RoundOutcome = "correct" | "failed" | "gave_up";
@@ -9,6 +58,7 @@ type RoundOutcome = "correct" | "failed" | "gave_up";
 type Filters = {
   genres: string[];
   countries: string[];
+  artist: ArtistOption | null;
   yearMin: number;
   yearMax: number;
   popularityMin: number;
@@ -34,20 +84,45 @@ type SearchResult = {
   id: number;
   title: string;
   artist: string;
-  artwork_url: string | null;
-};
-
-type RevealedSong = SearchResult & {
   album: string | null;
   release_year: number;
   artwork_url: string | null;
+  popularity_score: number | null;
+};
+
+type SearchResponse = {
+  items: SearchResult[];
+  offset: number;
+  limit: number;
+  total: number;
+  has_more: boolean;
+};
+
+export function excludeWrongGuess(
+  results: SearchResult[],
+  guessedId: number,
+): { remainingResults: SearchResult[]; nextGuess: SearchResult | null } {
+  const guessedIndex = results.findIndex((result) => result.id === guessedId);
+  if (guessedIndex < 0) return { remainingResults: results, nextGuess: results[0] ?? null };
+
+  const remainingResults = results.filter((result) => result.id !== guessedId);
+  const nextGuess =
+    remainingResults.length > 0 ? remainingResults[guessedIndex % remainingResults.length] : null;
+  return { remainingResults, nextGuess };
+}
+
+type RevealedSong = SearchResult & {
+  artwork_url: string | null;
   genres: string[];
   preview_url: string;
+  apple_music_url: string | null;
+  spotify_url: string | null;
 };
 
 const defaultFilters: Filters = {
   genres: [],
   countries: [],
+  artist: null,
   yearMin: 1960,
   yearMax: CURRENT_YEAR,
   popularityMin: 0,
@@ -68,34 +143,105 @@ export default function Game() {
   const [outcome, setOutcome] = useState<RoundOutcome | null>(null);
   const [revealedSong, setRevealedSong] = useState<RevealedSong | null>(null);
   const [isRevealLoading, setIsRevealLoading] = useState(false);
-  const [isRevealConfirmOpen, setIsRevealConfirmOpen] = useState(false);
+  const [isRevealArmed, setIsRevealArmed] = useState(false);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [volume, setVolume] = useState(0.8);
   const [audioError, setAudioError] = useState("");
   const [appError, setAppError] = useState("");
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchResultsQuery, setSearchResultsQuery] = useState("");
   const [selectedGuess, setSelectedGuess] = useState<SearchResult | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [isLoadingMoreResults, setIsLoadingMoreResults] = useState(false);
+  const [searchHasMore, setSearchHasMore] = useState(false);
+  const [searchNextOffset, setSearchNextOffset] = useState(0);
+  const [roundHistory, setRoundHistory] = useState<LocalRoundRecord[]>([]);
+  const [openUtilityPanel, setOpenUtilityPanel] = useState<"volume" | "stats" | null>(null);
+  const [wrongFeedbackKey, setWrongFeedbackKey] = useState(0);
+  const [isTutorialOpen, setIsTutorialOpen] = useState(false);
+  const [hasCheckedTutorial, setHasCheckedTutorial] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
+  const revealButtonRef = useRef<HTMLButtonElement>(null);
+  const utilityControlsRef = useRef<HTMLElement>(null);
+  const utilityTriggerRef = useRef<HTMLButtonElement | null>(null);
   const roundGenerationRef = useRef(0);
+  const recordedGenerationRef = useRef<number | null>(null);
+  const roundHistoryRef = useRef<LocalRoundRecord[]>([]);
+  const previousGuessesRef = useRef<SearchResult[]>([]);
+  const searchGenerationRef = useRef(0);
+  const searchLoadMoreRef = useRef(false);
+  const wrongFeedbackTimerRef = useRef<number | null>(null);
   const unlockedDuration = SNIPPET_DURATIONS[attempt];
-
-  useButtonFeedback();
+  const personalStats = useMemo(() => calculatePersonalStats(roundHistory), [roundHistory]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [phase]);
 
   useEffect(() => {
-    if (!isRevealConfirmOpen) return;
+    const storedHistory = loadRoundHistory();
+    roundHistoryRef.current = storedHistory;
+    setRoundHistory(storedHistory);
+  }, []);
+
+  useEffect(() => {
+    try {
+      setIsTutorialOpen(!hasSeenTutorial(window.localStorage));
+    } catch {
+      setIsTutorialOpen(true);
+    }
+    setHasCheckedTutorial(true);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (wrongFeedbackTimerRef.current !== null) {
+        window.clearTimeout(wrongFeedbackTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!isRevealArmed) return;
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsRevealConfirmOpen(false);
+      if (event.key === "Escape") setIsRevealArmed(false);
+    };
+    const handleOutsidePress = (event: PointerEvent) => {
+      if (revealButtonRef.current?.contains(event.target as Node)) return;
+      setIsRevealArmed(false);
+    };
+    window.addEventListener("keydown", handleEscape);
+    window.addEventListener("pointerdown", handleOutsidePress);
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("pointerdown", handleOutsidePress);
+    };
+  }, [isRevealArmed]);
+
+  useEffect(() => {
+    if (!openUtilityPanel) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpenUtilityPanel(null);
+      utilityTriggerRef.current?.focus();
     };
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [isRevealConfirmOpen]);
+  }, [openUtilityPanel]);
+
+  useEffect(() => {
+    if (openUtilityPanel !== "volume") return;
+    const handleOutsidePress = (event: PointerEvent) => {
+      if (utilityControlsRef.current?.contains(event.target as Node)) return;
+      closeUtilityPanel({ restoreFocus: false });
+    };
+    window.addEventListener("pointerdown", handleOutsidePress);
+    return () => window.removeEventListener("pointerdown", handleOutsidePress);
+  }, [openUtilityPanel]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -108,6 +254,7 @@ export default function Game() {
         const nextFilters: Filters = {
           genres: [],
           countries: [],
+          artist: null,
           yearMin: data.year_min ?? 1960,
           yearMax: data.year_max ?? CURRENT_YEAR,
           popularityMin: data.popularity_min,
@@ -200,38 +347,102 @@ export default function Game() {
   }, [isAudioPlaying, phase, unlockedDuration]);
 
   useEffect(() => {
-    if (phase !== "playing" || query.trim().length < 2 || selectedGuess) {
+    const generation = ++searchGenerationRef.current;
+    if (phase !== "playing") {
       setSearchResults([]);
+      setSearchResultsQuery("");
       setIsSearching(false);
+      setIsLoadingMoreResults(false);
+      setSearchHasMore(false);
+      setSearchNextOffset(0);
       return;
     }
 
+    setIsSearching(true);
+    setSearchHasMore(false);
     const controller = new AbortController();
-    const timeout = window.setTimeout(async () => {
-      setIsSearching(true);
-      try {
-        const response = await fetch(`/api/songs/search?q=${encodeURIComponent(query.trim())}`, {
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error("Search failed");
-        const results = (await response.json()) as SearchResult[];
-        setSearchResults(
-          results.filter((result) => !previousGuesses.some((guess) => guess.id === result.id)),
-        );
-      } catch (error) {
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setSearchResults([]);
+    const timeout = window.setTimeout(
+      async () => {
+        const normalizedQuery = query.trim();
+        try {
+          const params = new URLSearchParams({ offset: "0", limit: "40" });
+          if (normalizedQuery) params.set("q", normalizedQuery);
+          const response = await fetch(`/api/songs/search?${params}`, {
+            signal: controller.signal,
+          });
+          if (!response.ok) throw new Error("Search failed");
+          const payload = (await response.json()) as SearchResponse;
+          if (generation !== searchGenerationRef.current) return;
+          setSearchResultsQuery(normalizedQuery);
+          setSearchResults(
+            payload.items.filter(
+              (result) => !previousGuessesRef.current.some((guess) => guess.id === result.id),
+            ),
+          );
+          setSearchNextOffset(payload.offset + payload.items.length);
+          setSearchHasMore(payload.has_more);
+        } catch (error) {
+          if (!(error instanceof DOMException && error.name === "AbortError")) {
+            setSearchResultsQuery(normalizedQuery);
+            setSearchResults([]);
+            setSearchHasMore(false);
+          }
+        } finally {
+          if (!controller.signal.aborted) setIsSearching(false);
         }
-      } finally {
-        if (!controller.signal.aborted) setIsSearching(false);
-      }
-    }, 250);
+      },
+      query.trim() ? 250 : 0,
+    );
 
     return () => {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [phase, previousGuesses, query, selectedGuess]);
+  }, [phase, query]);
+
+  async function loadMoreSearchResults() {
+    const normalizedQuery = query.trim();
+    if (
+      phase !== "playing" ||
+      normalizedQuery !== searchResultsQuery ||
+      !searchHasMore ||
+      searchLoadMoreRef.current
+    ) {
+      return;
+    }
+
+    const generation = searchGenerationRef.current;
+    searchLoadMoreRef.current = true;
+    setIsLoadingMoreResults(true);
+    try {
+      const params = new URLSearchParams({
+        offset: String(searchNextOffset),
+        limit: "40",
+      });
+      if (normalizedQuery) params.set("q", normalizedQuery);
+      const response = await fetch(`/api/songs/search?${params}`);
+      if (!response.ok) throw new Error("Search failed");
+      const payload = (await response.json()) as SearchResponse;
+      if (generation !== searchGenerationRef.current) return;
+
+      setSearchResults((current) => {
+        const seen = new Set(current.map(({ id }) => id));
+        const additions = payload.items.filter(
+          (result) =>
+            !seen.has(result.id) &&
+            !previousGuessesRef.current.some((guess) => guess.id === result.id),
+        );
+        return [...current, ...additions];
+      });
+      setSearchNextOffset(payload.offset + payload.items.length);
+      setSearchHasMore(payload.has_more);
+    } catch {
+      // Keep the page retryable: reaching the edge will request it again.
+    } finally {
+      if (generation === searchGenerationRef.current) setIsLoadingMoreResults(false);
+      searchLoadMoreRef.current = false;
+    }
+  }
 
   const progressPercent = useMemo(() => {
     if (phase === "revealed") return 100;
@@ -257,25 +468,19 @@ export default function Game() {
     setRevealedSong(null);
     setOutcome(null);
     setAttempt(0);
+    previousGuessesRef.current = [];
     setPreviousGuesses([]);
     setSelectedGuess(null);
     setQuery("");
     setSearchResults([]);
-    setIsRevealConfirmOpen(false);
+    setSearchResultsQuery("");
+    setIsRevealArmed(false);
 
     const requestRound = async (excludeIds: number[]) => {
       return fetch("/api/round", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          genres: filters.genres,
-          countries: filters.countries,
-          year_min: filters.yearMin,
-          year_max: filters.yearMax,
-          popularity_min: filters.popularityMin,
-          popularity_max: filters.popularityMax,
-          exclude_ids: excludeIds,
-        }),
+        body: JSON.stringify(createRoundRequest(filters, excludeIds)),
       });
     };
 
@@ -307,16 +512,17 @@ export default function Game() {
     }
   }
 
-  function beginGame() {
-    if (draftFilters.yearMin > draftFilters.yearMax) {
+  function beginGame(filters: SetupFilters = draftFilters) {
+    if (filters.yearMin > filters.yearMax) {
       setAppError("The minimum year cannot be later than the maximum year.");
       return;
     }
-    if (draftFilters.popularityMin > draftFilters.popularityMax) {
+    if (filters.popularityMin > filters.popularityMax) {
       setAppError("The minimum popularity cannot exceed the maximum popularity.");
       return;
     }
-    void startRound(draftFilters, []);
+    setDraftFilters(filters);
+    void startRound(filters, []);
   }
 
   async function playSnippet() {
@@ -342,22 +548,57 @@ export default function Game() {
     }
   }
 
-  function rewindSnippet() {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.pause();
-    audio.currentTime = 0;
-    setPlaybackCursor(0);
-    setAudioError("");
-  }
-
   async function finishRound(nextOutcome: RoundOutcome) {
     if (currentSongId === null) return;
     const generation = roundGenerationRef.current;
-    setIsRevealConfirmOpen(false);
+    let historyRecordId: string | null = null;
+    if (recordedGenerationRef.current !== generation) {
+      recordedGenerationRef.current = generation;
+      historyRecordId = `${Date.now()}-${currentSongId}-${generation}`;
+      persistRoundHistory({
+        id: historyRecordId,
+        songId: currentSongId,
+        result: resultForRound(nextOutcome, attempt),
+        completedAt: new Date().toISOString(),
+      });
+    }
+    setIsRevealArmed(false);
     stopAudio(true);
     setOutcome(nextOutcome);
     setPhase("revealed");
+    void playFullPreview(true);
+    setIsRevealLoading(true);
+    setAppError("");
+    try {
+      const response = await fetch(`/api/songs/${currentSongId}`);
+      if (!response.ok) throw new Error(await readApiError(response));
+      const song = (await response.json()) as RevealedSong;
+      if (generation === roundGenerationRef.current) {
+        setRevealedSong(song);
+        if (historyRecordId) {
+          const existing = roundHistoryRef.current.find((record) => record.id === historyRecordId);
+          if (existing) {
+            persistRoundHistory({
+              ...existing,
+              title: song.title,
+              artist: song.artist,
+              artworkUrl: song.artwork_url,
+            });
+          }
+        }
+      }
+    } catch (error) {
+      if (generation === roundGenerationRef.current) {
+        setAppError(error instanceof Error ? error.message : "Could not reveal this song.");
+      }
+    } finally {
+      if (generation === roundGenerationRef.current) setIsRevealLoading(false);
+    }
+  }
+
+  async function retryReveal() {
+    if (currentSongId === null) return;
+    const generation = roundGenerationRef.current;
     setIsRevealLoading(true);
     setAppError("");
     try {
@@ -374,14 +615,37 @@ export default function Game() {
     }
   }
 
-  function advanceAttempt() {
-    setSelectedGuess(null);
-    setQuery("");
-    setSearchResults([]);
+  function persistRoundHistory(record: LocalRoundRecord) {
+    const nextHistory = addOrUpdateRound(roundHistoryRef.current, record);
+    roundHistoryRef.current = nextHistory;
+    setRoundHistory(nextHistory);
+    saveRoundHistory(nextHistory);
+  }
+
+  function advanceAttempt({ resumePlayback = false, preserveSearch = false } = {}) {
+    setIsRevealArmed(false);
+    if (!preserveSearch) {
+      setSelectedGuess(null);
+      setQuery("");
+      setSearchResults([]);
+      setSearchResultsQuery("");
+    }
     if (attempt === SNIPPET_DURATIONS.length - 1) {
       void finishRound("failed");
     } else {
       setAttempt((current) => current + 1);
+      if (resumePlayback) {
+        window.requestAnimationFrame(() => {
+          const audio = audioRef.current;
+          if (!audio || !audio.paused) return;
+          setAudioError("");
+          void audio.play().catch(() => {
+            setAudioError(
+              "Playback was blocked. Tap Play again or check your browser audio settings.",
+            );
+          });
+        });
+      }
     }
   }
 
@@ -391,22 +655,38 @@ export default function Game() {
       void finishRound("correct");
       return;
     }
-    if (!previousGuesses.some((guess) => guess.id === selectedGuess.id)) {
-      setPreviousGuesses((guesses) => [...guesses, selectedGuess]);
+    showWrongFeedback();
+    if (!previousGuessesRef.current.some((guess) => guess.id === selectedGuess.id)) {
+      const nextGuesses = [...previousGuessesRef.current, selectedGuess];
+      previousGuessesRef.current = nextGuesses;
+      setPreviousGuesses(nextGuesses);
     }
-    advanceAttempt();
+    const { remainingResults, nextGuess } = excludeWrongGuess(searchResults, selectedGuess.id);
+    setSearchResults(remainingResults);
+    setSelectedGuess(nextGuess);
+    advanceAttempt({ preserveSearch: true });
+  }
+
+  function showWrongFeedback() {
+    if (wrongFeedbackTimerRef.current !== null) {
+      window.clearTimeout(wrongFeedbackTimerRef.current);
+    }
+    setWrongFeedbackKey((current) => current + 1);
+    wrongFeedbackTimerRef.current = window.setTimeout(() => {
+      setWrongFeedbackKey(0);
+      wrongFeedbackTimerRef.current = null;
+    }, 900);
   }
 
   function selectSearchResult(result: SearchResult) {
     setSelectedGuess(result);
-    setQuery(`${result.title} — ${result.artist}`);
-    setSearchResults([]);
   }
 
   function clearGuessSearch() {
     setQuery("");
     setSelectedGuess(null);
     setSearchResults([]);
+    setSearchResultsQuery("");
   }
 
   async function playFullPreview(restart = false) {
@@ -421,50 +701,132 @@ export default function Game() {
     }
   }
 
-  function toggleGenre(genre: string) {
-    setDraftFilters((filters) => ({
-      ...filters,
-      genres: filters.genres.includes(genre)
-        ? filters.genres.filter((item) => item !== genre)
-        : [...filters.genres, genre],
-    }));
+  function changeFilters() {
+    ++roundGenerationRef.current;
+    stopAudio(true);
+    setIsRevealArmed(false);
+    setDraftFilters(activeFilters);
+    setPhase("setup");
+    setAppError("");
+    setOpenUtilityPanel(null);
   }
 
-  function toggleCountry(country: string) {
-    setDraftFilters((filters) => ({
-      ...filters,
-      countries: filters.countries.includes(country)
-        ? filters.countries.filter((item) => item !== country)
-        : [...filters.countries, country],
-    }));
+  function toggleUtilityPanel(panel: "volume" | "stats", trigger: HTMLButtonElement) {
+    utilityTriggerRef.current = trigger;
+    setOpenUtilityPanel((current) => (current === panel ? null : panel));
+  }
+
+  function closeUtilityPanel({ restoreFocus = true } = {}) {
+    setOpenUtilityPanel(null);
+    if (restoreFocus) window.requestAnimationFrame(() => utilityTriggerRef.current?.focus());
   }
 
   return (
     <section className="game-shell" aria-live="polite">
-      <header className="brand-lockup">
+      <header className="brand-lockup has-utility-controls">
         <a className="brand" href="/" aria-label="Songuess home">
           Songuess<span aria-hidden="true">.</span>
         </a>
+        <nav ref={utilityControlsRef} className="utility-controls" aria-label="Game options">
+          {(phase === "playing" || phase === "revealed") && (
+            <>
+              <div className="utility-control">
+                <button
+                  className="utility-icon-button"
+                  type="button"
+                  aria-label="Audio settings"
+                  aria-expanded={openUtilityPanel === "volume"}
+                  aria-controls="volume-panel"
+                  onClick={(event) => toggleUtilityPanel("volume", event.currentTarget)}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6" />
+                  </svg>
+                </button>
+                {openUtilityPanel === "volume" && (
+                  <div
+                    className="utility-popover volume-popover"
+                    id="volume-panel"
+                    role="dialog"
+                    aria-label="Audio settings"
+                  >
+                    <span className="utility-popover-label">Volume</span>
+                    <VolumeControl volume={volume} onChange={setVolume} />
+                  </div>
+                )}
+              </div>
+              <button
+                className="utility-icon-button"
+                type="button"
+                aria-label="View personal statistics"
+                aria-expanded={openUtilityPanel === "stats"}
+                aria-controls="statistics-panel"
+                onClick={(event) => toggleUtilityPanel("stats", event.currentTarget)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 19V5M4 19h16M7 15l3-4 3 2 4-6" />
+                  <path d="m15 7 2-.25.25 2" />
+                </svg>
+              </button>
+            </>
+          )}
+          <button
+            className="utility-icon-button tutorial-info-button"
+            type="button"
+            aria-label="How to play"
+            aria-expanded={isTutorialOpen}
+            aria-haspopup="dialog"
+            onClick={(event) => {
+              utilityTriggerRef.current = event.currentTarget;
+              setOpenUtilityPanel(null);
+              setIsTutorialOpen(true);
+            }}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="8" />
+              <path d="M12 11v5M12 8h.01" />
+            </svg>
+          </button>
+        </nav>
       </header>
+
+      {hasCheckedTutorial && isTutorialOpen && (
+        <Tutorial
+          onDismiss={() => {
+            setIsTutorialOpen(false);
+            window.requestAnimationFrame(() => utilityTriggerRef.current?.focus());
+          }}
+        />
+      )}
 
       <audio ref={audioRef} src={previewUrl || undefined} preload="metadata" />
 
+      {wrongFeedbackKey > 0 && (
+        <div
+          className="wrong-feedback-overlay"
+          key={wrongFeedbackKey}
+          role="status"
+          aria-live="assertive"
+        >
+          <span>Wrong</span>
+        </div>
+      )}
+
       {phase === "setup" || phase === "loading" ? (
-        <SetupScreen
+        <SetupWizard
           filters={draftFilters}
           metadata={metadata}
           error={appError}
           loading={phase === "loading"}
-          onFiltersChange={setDraftFilters}
-          onGenreToggle={toggleGenre}
-          onCountryToggle={toggleCountry}
-          onPlay={beginGame}
+          onChange={setDraftFilters}
+          onStart={beginGame}
         />
       ) : (
-        <div className="play-stack">
+        <div className={`play-stack phase-${phase}`}>
           <div className="round-topline">
             <span>
               {[
+                activeFilters.artist?.name ?? "All artists",
                 activeFilters.genres.length ? activeFilters.genres.join(" · ") : "All genres",
                 activeFilters.countries.length
                   ? activeFilters.countries.map(countryDisplay).join(" · ")
@@ -473,496 +835,221 @@ export default function Game() {
             </span>
           </div>
 
-          {phase === "playing" ? (
-            <>
-              <section className="listening-card" aria-label="Audio snippet controls">
-                <p className="clue-readout">
-                  Current clue: {unlockedDuration} {unlockedDuration === 1 ? "second" : "seconds"}
-                </p>
-                <VinylProgress
-                  attempt={attempt}
-                  progressPercent={progressPercent}
-                  isPlaying={isAudioPlaying}
-                  onRewind={rewindSnippet}
-                />
-                <VolumeControl volume={volume} onChange={setVolume} />
-                {audioError && <p className="inline-error">{audioError}</p>}
+          <div
+            className={`play-mode-stage${openUtilityPanel === "stats" ? " is-showing-stats" : ""}`}
+          >
+            {openUtilityPanel === "stats" ? (
+              <section
+                className="statistics-view"
+                id="statistics-panel"
+                aria-labelledby="personal-stats-heading"
+              >
+                <PersonalStatistics history={roundHistory} stats={personalStats} />
               </section>
-
-              <section className="guess-card" aria-label="Guess the song">
-                <div className="search-field">
-                  <label className="sr-only" htmlFor="song-search">
-                    Search by song title or artist
-                  </label>
-                  <input
-                    id="song-search"
-                    type="search"
-                    value={query}
-                    autoComplete="off"
-                    placeholder="Song or artist…"
-                    onChange={(event) => {
-                      setQuery(event.target.value);
-                      setSelectedGuess(null);
-                    }}
-                    aria-expanded={searchResults.length > 0}
-                    aria-controls="search-results"
-                  />
-                  {query && (
-                    <button
-                      className="search-clear"
-                      type="button"
-                      aria-label="Clear song search"
-                      onClick={clearGuessSearch}
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="m7 7 10 10M17 7 7 17" />
-                      </svg>
-                    </button>
+            ) : (
+              <div className="gameplay-view">
+                <section className="listening-card" aria-label="Audio controls">
+                  {phase !== "revealed" && (
+                    <div className="clue-status">
+                      <PotentialPoints attempt={attempt} />
+                      <p className="clue-readout">
+                        Current clue: {unlockedDuration}{" "}
+                        {unlockedDuration === 1 ? "second" : "seconds"}
+                      </p>
+                    </div>
                   )}
-                  {isSearching && <span className="search-status">Searching…</span>}
-                  {searchResults.length > 0 && (
-                    <ul className="search-results" id="search-results" role="listbox">
-                      {searchResults.map((result) => (
-                        <li key={result.id}>
-                          <button type="button" onClick={() => selectSearchResult(result)}>
-                            {result.artwork_url ? (
-                              <img src={result.artwork_url} alt="" />
-                            ) : (
-                              <span className="result-artwork-placeholder" aria-hidden="true">
-                                ♪
-                              </span>
-                            )}
-                            <span className="result-copy">
-                              <strong>{result.title}</strong>
-                              <small>{result.artist}</small>
-                            </span>
-                          </button>
+                  <div className="vinyl-control-deck">
+                    {phase === "revealed" && (
+                      <div className="clue-status reveal-points-status">
+                        <p
+                          className="clue-readout outcome-readout"
+                          aria-label={`${pointsForResult(resultForRound(outcome ?? "failed", attempt))} points`}
+                        >
+                          <span className="outcome-readout__points">
+                            {pointsForResult(resultForRound(outcome ?? "failed", attempt))} points
+                          </span>
+                        </p>
+                      </div>
+                    )}
+                    <VinylSleeveReveal
+                      revealed={phase === "revealed"}
+                      outcome={outcome}
+                      song={revealedSong}
+                      loading={isRevealLoading}
+                      error={appError}
+                      onRetry={() => void retryReveal()}
+                    >
+                      <VinylProgress
+                        attempt={attempt}
+                        progressPercent={progressPercent}
+                        isPlaying={isAudioPlaying}
+                        revealed={phase === "revealed"}
+                        song={revealedSong}
+                      />
+                    </VinylSleeveReveal>
+                    <nav className="game-actions-dock" aria-label="Round controls">
+                      <button
+                        ref={revealButtonRef}
+                        className={`dock-side-action dock-reveal${isRevealArmed ? " is-confirming" : ""}`}
+                        type="button"
+                        aria-label={
+                          phase === "revealed"
+                            ? "Change filters"
+                            : isRevealArmed
+                              ? "Confirm reveal song"
+                              : "Reveal song"
+                        }
+                        aria-pressed={phase === "playing" ? isRevealArmed : undefined}
+                        onClick={() => {
+                          if (phase === "revealed") changeFilters();
+                          else if (isRevealArmed) void finishRound("gave_up");
+                          else setIsRevealArmed(true);
+                        }}
+                      >
+                        {phase === "revealed" ? (
+                          "Change filters"
+                        ) : (
+                          <span className="reveal-button-copy" aria-live="polite">
+                            <span className="reveal-button-default">Reveal</span>
+                            <span className="reveal-button-confirm">Reveal now?</span>
+                          </span>
+                        )}
+                      </button>
+                      {phase !== "revealed" && (
+                        <button
+                          className={`dock-play-action${isAudioPlaying ? " is-playing" : ""}`}
+                          type="button"
+                          onClick={() => {
+                            if (isAudioPlaying) audioRef.current?.pause();
+                            else toggleSnippetPlayback();
+                          }}
+                          aria-label={isAudioPlaying ? "Pause clue" : "Play clue"}
+                        >
+                          {isAudioPlaying ? (
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
+                            </svg>
+                          ) : (
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                              <path d="m8 5 11 7-11 7V5Z" />
+                            </svg>
+                          )}
+                        </button>
+                      )}
+                      <button
+                        className="dock-side-action dock-skip"
+                        type="button"
+                        onClick={
+                          phase === "revealed"
+                            ? () => void startRound(activeFilters)
+                            : () => advanceAttempt({ resumePlayback: true, preserveSearch: true })
+                        }
+                      >
+                        {phase === "revealed" ? "Next song" : "Next clue"}
+                      </button>
+                    </nav>
+                  </div>
+                  {audioError && <p className="inline-error">{audioError}</p>}
+                </section>
+
+                <div className="round-answer-surface">
+                  <div className={`guess-collapse${phase === "revealed" ? " is-collapsed" : ""}`}>
+                    <div>
+                      <section className="guess-card" aria-label="Guess the song">
+                        <div className="search-field">
+                          <label className="sr-only" htmlFor="song-search">
+                            Search by song title or artist
+                          </label>
+                          <input
+                            id="song-search"
+                            type="search"
+                            value={query}
+                            autoComplete="off"
+                            placeholder="Song or artist…"
+                            disabled={phase === "revealed"}
+                            onChange={(event) => {
+                              setQuery(event.target.value);
+                              setSelectedGuess(null);
+                              // Keep the settled deck in place during the debounce/request so the
+                              // search surface never collapses. Its query identity is updated only
+                              // when the latest response arrives, which prevents stale focus from
+                              // surviving into the replacement ranking.
+                              setIsSearching(true);
+                              setSearchHasMore(false);
+                              setSearchNextOffset(0);
+                            }}
+                            aria-expanded={searchResults.length > 0}
+                            aria-controls="search-results"
+                          />
+                          {query && phase === "playing" && (
+                            <button
+                              className="search-clear"
+                              type="button"
+                              aria-label="Clear song search"
+                              onClick={clearGuessSearch}
+                            >
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="m7 7 10 10M17 7 7 17" />
+                              </svg>
+                            </button>
+                          )}
+                          {phase === "playing" && (
+                            <AlbumGuessBrowser
+                              results={searchResults}
+                              query={searchResultsQuery}
+                              isSearching={isSearching || isLoadingMoreResults}
+                              hasMore={searchHasMore}
+                              onNeedMore={loadMoreSearchResults}
+                              onSelect={selectSearchResult}
+                              onActiveChange={selectSearchResult}
+                              selectedId={selectedGuess?.id}
+                            />
+                          )}
+                        </div>
+                        <button
+                          className="primary-action"
+                          type="button"
+                          disabled={!selectedGuess || phase === "revealed"}
+                          onClick={submitGuess}
+                        >
+                          Guess
+                        </button>
+                      </section>
+                    </div>
+                  </div>
+                </div>
+
+                {previousGuesses.length > 0 && (
+                  <section className="previous-guesses" aria-labelledby="previous-heading">
+                    <span className="eyebrow" id="previous-heading">
+                      Wrong
+                    </span>
+                    <ul>
+                      {previousGuesses.map((guess) => (
+                        <li key={guess.id}>
+                          <span aria-hidden="true">×</span>
+                          {guess.artwork_url ? (
+                            <img src={guess.artwork_url} alt="" width="48" height="48" />
+                          ) : (
+                            <i aria-hidden="true">♪</i>
+                          )}
+                          <div>
+                            <strong>{guess.title}</strong>
+                            <small>{guess.artist}</small>
+                            <small>
+                              {guess.album ?? "Unknown album"} · {guess.release_year}
+                            </small>
+                          </div>
                         </li>
                       ))}
                     </ul>
-                  )}
-                </div>
-                {selectedGuess && (
-                  <div className="selected-guess">
-                    {selectedGuess.artwork_url ? (
-                      <img
-                        src={selectedGuess.artwork_url}
-                        alt={`Cover artwork for ${selectedGuess.title}`}
-                      />
-                    ) : (
-                      <span className="selected-artwork-placeholder" aria-hidden="true">
-                        ♪
-                      </span>
-                    )}
-                    <div>
-                      <span>Selected</span>
-                      <strong>{selectedGuess.title}</strong>
-                      <small>{selectedGuess.artist}</small>
-                    </div>
-                  </div>
-                )}
-                <button
-                  className="primary-action"
-                  type="button"
-                  disabled={!selectedGuess}
-                  onClick={submitGuess}
-                >
-                  Guess
-                </button>
-              </section>
-
-              {previousGuesses.length > 0 && (
-                <section className="previous-guesses" aria-labelledby="previous-heading">
-                  <span className="eyebrow" id="previous-heading">
-                    Wrong
-                  </span>
-                  <ul>
-                    {previousGuesses.map((guess) => (
-                      <li key={guess.id}>
-                        <span aria-hidden="true">×</span>
-                        <div>
-                          <strong>{guess.title}</strong>
-                          <small>{guess.artist}</small>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-
-              <nav className="game-actions-dock" aria-label="Round controls">
-                <button
-                  className="dock-side-action dock-reveal"
-                  type="button"
-                  onClick={() => setIsRevealConfirmOpen(true)}
-                >
-                  Reveal
-                </button>
-                <button
-                  className={`dock-play-action${isAudioPlaying ? " is-playing" : ""}`}
-                  type="button"
-                  onClick={toggleSnippetPlayback}
-                  aria-label={isAudioPlaying ? "Pause clue" : "Play clue"}
-                >
-                  {isAudioPlaying ? (
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
-                    </svg>
-                  ) : (
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="m8 5 11 7-11 7V5Z" />
-                    </svg>
-                  )}
-                </button>
-                <button
-                  className="dock-side-action dock-skip"
-                  type="button"
-                  onClick={advanceAttempt}
-                >
-                  Next clue
-                </button>
-              </nav>
-
-              {isRevealConfirmOpen && (
-                <div
-                  className="confirm-backdrop"
-                  role="presentation"
-                  onMouseDown={(event) => {
-                    if (event.currentTarget === event.target) setIsRevealConfirmOpen(false);
-                  }}
-                >
-                  <section
-                    className="confirm-dialog"
-                    role="alertdialog"
-                    aria-modal="true"
-                    aria-labelledby="reveal-confirm-title"
-                  >
-                    <h2 id="reveal-confirm-title">Reveal song?</h2>
-                    <div className="confirm-actions">
-                      <button type="button" autoFocus onClick={() => setIsRevealConfirmOpen(false)}>
-                        Cancel
-                      </button>
-                      <button type="button" onClick={() => void finishRound("gave_up")}>
-                        Reveal
-                      </button>
-                    </div>
                   </section>
-                </div>
-              )}
-            </>
-          ) : (
-            <RevealCard
-              outcome={outcome}
-              song={revealedSong}
-              loading={isRevealLoading}
-              error={appError}
-              audioError={audioError}
-              isPlaying={isAudioPlaying}
-              onTogglePreview={() => {
-                if (isAudioPlaying) audioRef.current?.pause();
-                else void playFullPreview();
-              }}
-              onNext={() => void startRound(activeFilters)}
-              onChangeFilters={() => {
-                ++roundGenerationRef.current;
-                stopAudio(true);
-                setDraftFilters(activeFilters);
-                setPhase("setup");
-                setAppError("");
-              }}
-            />
-          )}
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
-    </section>
-  );
-}
-
-function useButtonFeedback() {
-  useEffect(() => {
-    const timers = new Map<HTMLButtonElement, number>();
-
-    const showFeedback = (button: HTMLButtonElement, kind: "tap" | "click") => {
-      const activeTimer = timers.get(button);
-      if (activeTimer !== undefined) window.clearTimeout(activeTimer);
-
-      button.dataset.buttonFeedback = kind;
-      const timer = window.setTimeout(
-        () => {
-          delete button.dataset.buttonFeedback;
-          timers.delete(button);
-        },
-        kind === "tap" ? 500 : 220,
-      );
-      timers.set(button, timer);
-    };
-
-    const buttonFromEvent = (event: Event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return null;
-      const button = target.closest("button");
-      return button instanceof HTMLButtonElement && !button.disabled ? button : null;
-    };
-
-    const handlePointerUp = (event: PointerEvent) => {
-      const button = buttonFromEvent(event);
-      if (!button) return;
-      showFeedback(button, event.pointerType === "touch" ? "tap" : "click");
-    };
-
-    const handleKeyboardClick = (event: MouseEvent) => {
-      if (event.detail !== 0) return;
-      const button = buttonFromEvent(event);
-      if (button) showFeedback(button, "click");
-    };
-
-    document.addEventListener("pointerup", handlePointerUp);
-    document.addEventListener("click", handleKeyboardClick);
-    return () => {
-      document.removeEventListener("pointerup", handlePointerUp);
-      document.removeEventListener("click", handleKeyboardClick);
-      timers.forEach((timer) => window.clearTimeout(timer));
-    };
-  }, []);
-}
-
-type SetupScreenProps = {
-  filters: Filters;
-  metadata: FilterMetadata | null;
-  error: string;
-  loading: boolean;
-  onFiltersChange: (filters: Filters) => void;
-  onGenreToggle: (genre: string) => void;
-  onCountryToggle: (country: string) => void;
-  onPlay: () => void;
-};
-
-function SetupScreen({
-  filters,
-  metadata,
-  error,
-  loading,
-  onFiltersChange,
-  onGenreToggle,
-  onCountryToggle,
-  onPlay,
-}: SetupScreenProps) {
-  const [genreQuery, setGenreQuery] = useState("");
-  const visibleGenres = useMemo(() => {
-    const prefix = genreQuery.trim().toLocaleLowerCase();
-    if (!prefix) return metadata?.genres ?? [];
-    return (metadata?.genres ?? []).filter((genre) => genre.toLocaleLowerCase().startsWith(prefix));
-  }, [genreQuery, metadata?.genres]);
-  const [displayedGenres, setDisplayedGenres] = useState<string[]>([]);
-  const [genreTransition, setGenreTransition] = useState<"idle" | "out" | "in">("idle");
-  const [countryQuery, setCountryQuery] = useState("");
-  const countryOptions = useMemo(
-    () =>
-      (metadata?.countries ?? [])
-        .map((code) => ({ code, name: countryLabel(code), flag: countryFlag(code) }))
-        .sort((first, second) => first.name.localeCompare(second.name)),
-    [metadata?.countries],
-  );
-  const visibleCountries = useMemo(
-    () => filterCountryOptions(countryOptions, countryQuery),
-    [countryOptions, countryQuery],
-  );
-  const [displayedCountries, setDisplayedCountries] = useState<CountryOption[]>([]);
-  const [countryTransition, setCountryTransition] = useState<"idle" | "out" | "in">("idle");
-
-  useEffect(() => {
-    let settleTimer: number | undefined;
-    setGenreTransition("out");
-    const swapTimer = window.setTimeout(() => {
-      setDisplayedGenres(visibleGenres);
-      setGenreTransition("in");
-      settleTimer = window.setTimeout(() => setGenreTransition("idle"), 150);
-    }, 100);
-
-    return () => {
-      window.clearTimeout(swapTimer);
-      if (settleTimer !== undefined) window.clearTimeout(settleTimer);
-    };
-  }, [visibleGenres]);
-
-  useEffect(() => {
-    let settleTimer: number | undefined;
-    setCountryTransition("out");
-    const swapTimer = window.setTimeout(() => {
-      setDisplayedCountries(visibleCountries);
-      setCountryTransition("in");
-      settleTimer = window.setTimeout(() => setCountryTransition("idle"), 150);
-    }, 100);
-
-    return () => {
-      window.clearTimeout(swapTimer);
-      if (settleTimer !== undefined) window.clearTimeout(settleTimer);
-    };
-  }, [visibleCountries]);
-
-  return (
-    <section className="setup-card" aria-labelledby="setup-heading">
-      <div className="setup-intro">
-        <h1 id="setup-heading">Pick your mix.</h1>
-      </div>
-
-      <div className="setup-controls">
-        {metadata?.song_count === 0 && !error && (
-          <div className="catalog-note">
-            <strong>Catalog empty</strong>
-          </div>
-        )}
-        {error && <p className="notice-error">{error}</p>}
-
-        {(metadata === null || metadata.genres.length > 0) && (
-          <fieldset>
-            <legend>Genres</legend>
-            <div className="filter-search">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="10.8" cy="10.8" r="6.3" />
-                <path d="m15.5 15.5 4.2 4.2" />
-              </svg>
-              <label className="sr-only" htmlFor="genre-search">
-                Filter genres
-              </label>
-              <input
-                id="genre-search"
-                type="search"
-                value={genreQuery}
-                placeholder="Find genre"
-                autoComplete="off"
-                onChange={(event) => setGenreQuery(event.target.value)}
-                aria-controls="genre-options"
-              />
-            </div>
-            <div className="genre-grid-frame">
-              <div className="genre-grid genre-grid-measure" aria-hidden="true">
-                {metadata?.genres.map((genre) => (
-                  <span className="genre-chip" key={genre}>
-                    <span>{genre}</span>
-                  </span>
-                ))}
-              </div>
-              <div
-                className={`genre-grid genre-grid-filtered is-filtering-${genreTransition}`}
-                id="genre-options"
-                aria-live="polite"
-              >
-                {metadata === null ? (
-                  <span className="muted">Loading…</span>
-                ) : displayedGenres.length === 0 ? (
-                  <span className="muted">No matching genres</span>
-                ) : (
-                  displayedGenres.map((genre) => (
-                    <label className="genre-chip" key={genre}>
-                      <input
-                        type="checkbox"
-                        checked={filters.genres.includes(genre)}
-                        onChange={() => onGenreToggle(genre)}
-                      />
-                      <span>{genre}</span>
-                    </label>
-                  ))
-                )}
-              </div>
-            </div>
-          </fieldset>
-        )}
-
-        {(metadata === null || metadata.countries.length > 0) && (
-          <fieldset className="country-filter">
-            <legend>Artist origin</legend>
-            <div className="filter-search">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="10.8" cy="10.8" r="6.3" />
-                <path d="m15.5 15.5 4.2 4.2" />
-              </svg>
-              <label className="sr-only" htmlFor="country-search">
-                Filter countries
-              </label>
-              <input
-                id="country-search"
-                type="search"
-                value={countryQuery}
-                placeholder="Find country"
-                autoComplete="off"
-                onChange={(event) => setCountryQuery(event.target.value)}
-                aria-controls="country-options"
-              />
-            </div>
-            <div className="country-grid-frame">
-              <div
-                className={`genre-grid country-grid is-filtering-${countryTransition}`}
-                id="country-options"
-                aria-live="polite"
-              >
-                {metadata === null ? (
-                  <span className="muted">Loading…</span>
-                ) : displayedCountries.length === 0 ? (
-                  <span className="muted">No matching countries</span>
-                ) : (
-                  displayedCountries.map(({ code, name, flag }) => (
-                    <label className="genre-chip country-chip" key={code}>
-                      <input
-                        type="checkbox"
-                        checked={filters.countries.includes(code)}
-                        onChange={() => onCountryToggle(code)}
-                      />
-                      <span>
-                        <b aria-hidden="true">{flag}</b>
-                        {name}
-                      </span>
-                    </label>
-                  ))
-                )}
-              </div>
-            </div>
-          </fieldset>
-        )}
-
-        <div className="range-section">
-          <div className="range-heading">
-            <h2>Year</h2>
-            <output>
-              {filters.yearMin} — {filters.yearMax}
-            </output>
-          </div>
-          <RangeSlider
-            min={metadata?.year_min ?? 1960}
-            max={metadata?.year_max ?? CURRENT_YEAR}
-            low={filters.yearMin}
-            high={filters.yearMax}
-            lowLabel="Minimum release year"
-            highLabel="Maximum release year"
-            onChange={(yearMin, yearMax) => onFiltersChange({ ...filters, yearMin, yearMax })}
-          />
-        </div>
-
-        <div className="range-section">
-          <div className="range-heading">
-            <h2>Popularity</h2>
-            <output>
-              {filters.popularityMin} — {filters.popularityMax}
-            </output>
-          </div>
-          <RangeSlider
-            min={0}
-            max={100}
-            low={filters.popularityMin}
-            high={filters.popularityMax}
-            lowLabel="Minimum popularity"
-            highLabel="Maximum popularity"
-            onChange={(popularityMin, popularityMax) =>
-              onFiltersChange({ ...filters, popularityMin, popularityMax })
-            }
-          />
-        </div>
-
-        <button className="start-button" type="button" onClick={onPlay} disabled={loading}>
-          <span>{loading ? "Loading…" : "Play"}</span>
-          <span aria-hidden="true">↗</span>
-        </button>
-      </div>
     </section>
   );
 }
@@ -998,10 +1085,17 @@ type VinylProgressProps = {
   attempt: number;
   progressPercent: number;
   isPlaying: boolean;
-  onRewind: () => void;
+  revealed: boolean;
+  song: RevealedSong | null;
 };
 
-function VinylProgress({ attempt, progressPercent, isPlaying, onRewind }: VinylProgressProps) {
+function VinylProgress({
+  attempt,
+  progressPercent,
+  isPlaying,
+  revealed,
+  song,
+}: VinylProgressProps) {
   const center = 120;
   const ringRadius = 106;
   const progressOffset = 100 - progressPercent;
@@ -1013,39 +1107,48 @@ function VinylProgress({ attempt, progressPercent, isPlaying, onRewind }: VinylP
     <div
       className={`vinyl-progress${isPlaying ? " is-spinning" : ""}`}
       role="group"
-      aria-label={`Clue ${attempt + 1} of ${SNIPPET_DURATIONS.length}, ${Math.round(progressPercent)} percent played`}
+      aria-label={
+        revealed
+          ? song
+            ? `Answer: ${song.title} by ${song.artist}`
+            : "Answer revealed"
+          : `Clue ${attempt + 1} of ${SNIPPET_DURATIONS.length}, ${Math.round(progressPercent)} percent played`
+      }
     >
-      <div className="vinyl-disc" aria-hidden="true">
-        <span />
+      <div className="vinyl-flipper" aria-hidden="true">
+        <div className="vinyl-face vinyl-front">
+          <div className="vinyl-disc">
+            <span />
+          </div>
+        </div>
       </div>
-      <svg className="vinyl-progress-ring" viewBox="0 0 240 240" aria-hidden="true">
-        <circle className="vinyl-ring-base" cx={center} cy={center} r={ringRadius} />
-        <circle
-          className="vinyl-ring-fill"
-          cx={center}
-          cy={center}
-          r={ringRadius}
-          pathLength="100"
-          strokeDasharray="100"
-          strokeDashoffset={progressOffset}
-        />
-        {[0, ...SNIPPET_DURATIONS.slice(0, -1)].map((duration) => {
-          const angle = (duration / totalDuration) * Math.PI * 2 - Math.PI / 2;
-          return (
-            <line
-              className="vinyl-ring-cut"
-              key={duration}
-              x1={center + Math.cos(angle) * tickInnerRadius}
-              y1={center + Math.sin(angle) * tickInnerRadius}
-              x2={center + Math.cos(angle) * tickOuterRadius}
-              y2={center + Math.sin(angle) * tickOuterRadius}
-            />
-          );
-        })}
-      </svg>
-      <button className="vinyl-rewind" type="button" onClick={onRewind} aria-label="Rewind clue">
-        <ReplayIcon />
-      </button>
+      {!revealed && (
+        <svg className="vinyl-progress-ring" viewBox="0 0 240 240" aria-hidden="true">
+          <circle className="vinyl-ring-base" cx={center} cy={center} r={ringRadius} />
+          <circle
+            className="vinyl-ring-fill"
+            cx={center}
+            cy={center}
+            r={ringRadius}
+            pathLength="100"
+            strokeDasharray="100"
+            strokeDashoffset={progressOffset}
+          />
+          {[0, ...SNIPPET_DURATIONS.slice(0, -1)].map((duration) => {
+            const angle = (duration / totalDuration) * Math.PI * 2 - Math.PI / 2;
+            return (
+              <line
+                className="vinyl-ring-cut"
+                key={duration}
+                x1={center + Math.cos(angle) * tickInnerRadius}
+                y1={center + Math.sin(angle) * tickInnerRadius}
+                x2={center + Math.cos(angle) * tickOuterRadius}
+                y2={center + Math.sin(angle) * tickOuterRadius}
+              />
+            );
+          })}
+        </svg>
+      )}
     </div>
   );
 }
@@ -1084,135 +1187,99 @@ function VolumeControl({ volume, onChange }: VolumeControlProps) {
   );
 }
 
-function ReplayIcon() {
-  return (
-    <svg className="replay-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M8.3 7.5H4.5V3.7M4.8 7.1A8 8 0 1 1 4 13" />
-    </svg>
-  );
-}
-
-type RevealCardProps = {
-  outcome: RoundOutcome | null;
-  song: RevealedSong | null;
-  loading: boolean;
-  error: string;
-  audioError: string;
-  isPlaying: boolean;
-  onTogglePreview: () => void;
-  onNext: () => void;
-  onChangeFilters: () => void;
+type PersonalStatisticsProps = {
+  history: LocalRoundRecord[];
+  stats: PersonalStats;
 };
 
-function RevealCard({
-  outcome,
-  song,
-  loading,
-  error,
-  audioError,
-  isPlaying,
-  onTogglePreview,
-  onNext,
-  onChangeFilters,
-}: RevealCardProps) {
-  const copy = outcome === "correct" ? "Correct" : outcome === "gave_up" ? "Revealed" : "Missed";
-
+export function PersonalStatistics({ history, stats }: PersonalStatisticsProps) {
+  const largestClueCount = Math.max(1, ...Object.values(stats.clueDistribution));
   return (
-    <section className={`reveal-card outcome-${outcome ?? "loading"}`}>
-      <div className="reveal-copy">
-        <h1>{copy}</h1>
+    <section className="personal-stats" aria-labelledby="personal-stats-heading">
+      <div className="stats-heading">
+        <div>
+          <span className="eyebrow">This browser</span>
+          <h2 id="personal-stats-heading">Your record</h2>
+        </div>
+        <strong>{stats.totalPoints} pts</strong>
       </div>
-      {loading && <div className="reveal-loading">Loading…</div>}
-      {error && <p className="notice-error">{error}</p>}
-      {song && (
+
+      {stats.totalSongs === 0 ? (
+        <p className="muted">Your completed rounds will collect here.</p>
+      ) : (
         <>
-          <div className="record-frame">
-            {song.artwork_url ? (
-              <img src={song.artwork_url} alt={`Cover artwork for ${song.title}`} />
-            ) : (
-              <div className="artwork-placeholder" aria-label="No cover artwork available">
-                <span>♪</span>
-              </div>
-            )}
-            <div className="song-details">
-              <span>{song.release_year}</span>
-              <h2>{song.title}</h2>
-              <p>{song.artist}</p>
-              {song.album && <small>{song.album}</small>}
-              {song.genres.length > 0 && (
-                <div className="genre-line">{song.genres.join(" · ")}</div>
-              )}
-            </div>
-          </div>
-          <div className="full-preview">
+          <dl className="stats-summary">
             <div>
-              <h3>Full preview</h3>
+              <dt>Played</dt>
+              <dd>{stats.totalSongs}</dd>
             </div>
-            <div className="full-preview-controls">
-              <button className="primary-action" type="button" onClick={onTogglePreview}>
-                {isPlaying ? "Pause preview" : "Play full preview"}
-              </button>
+            <div>
+              <dt>Correct</dt>
+              <dd>
+                {stats.correctSongs} <small>{stats.correctPercentage}%</small>
+              </dd>
             </div>
-            {audioError && <p className="inline-error">{audioError}</p>}
+            <div>
+              <dt>Missed</dt>
+              <dd>
+                {stats.notGuessedSongs} <small>{stats.notGuessedPercentage}%</small>
+              </dd>
+            </div>
+            <div>
+              <dt>Avg clue</dt>
+              <dd>{stats.averageClue === null ? "—" : stats.averageClue.toFixed(1)}</dd>
+            </div>
+            <div>
+              <dt>Streak</dt>
+              <dd>{stats.currentStreak}</dd>
+            </div>
+            <div>
+              <dt>Best</dt>
+              <dd>{stats.bestStreak}</dd>
+            </div>
+          </dl>
+
+          <div className="clue-distribution" aria-label="Correct answers by clue">
+            {[1, 2, 3, 4, 5, 6].map((clue) => {
+              const count = stats.clueDistribution[clue as 1 | 2 | 3 | 4 | 5 | 6];
+              return (
+                <div key={clue}>
+                  <span>C{clue}</span>
+                  <i
+                    style={
+                      { "--clue-height": `${(count / largestClueCount) * 100}%` } as CSSProperties
+                    }
+                  />
+                  <b>{count}</b>
+                </div>
+              );
+            })}
           </div>
+
+          <details className="round-history" open>
+            <summary>Recent rounds</summary>
+            <ol>
+              {history.slice(0, 12).map((record) => (
+                <li key={record.id}>
+                  <span>{record.artworkUrl ? <img src={record.artworkUrl} alt="" /> : "♪"}</span>
+                  <div>
+                    <strong>{record.title ?? `Song ${record.songId}`}</strong>
+                    <small>
+                      {record.artist ?? new Date(record.completedAt).toLocaleDateString()}
+                    </small>
+                  </div>
+                  <b>
+                    {record.result === "not_guessed"
+                      ? "—"
+                      : `${pointsForResult(record.result)} pts`}
+                  </b>
+                </li>
+              ))}
+            </ol>
+          </details>
         </>
       )}
-      <div className="reveal-actions">
-        <button className="start-button" type="button" onClick={onNext} disabled={!song}>
-          <span>Next song</span>
-          <span aria-hidden="true">→</span>
-        </button>
-        <button
-          className="secondary-action change-filters-action"
-          type="button"
-          onClick={onChangeFilters}
-        >
-          Change filters
-        </button>
-      </div>
     </section>
-  );
-}
-
-type RangeSliderProps = {
-  min: number;
-  max: number;
-  low: number;
-  high: number;
-  lowLabel: string;
-  highLabel: string;
-  onChange: (low: number, high: number) => void;
-};
-
-function RangeSlider({ min, max, low, high, lowLabel, highLabel, onChange }: RangeSliderProps) {
-  const span = Math.max(1, max - min);
-  const trackStyle = {
-    "--range-start": `${((low - min) / span) * 100}%`,
-    "--range-end": `${((high - min) / span) * 100}%`,
-  } as CSSProperties;
-
-  return (
-    <div className="dual-range" style={trackStyle}>
-      <div className="dual-range-track" aria-hidden="true" />
-      <input
-        className="dual-range-input dual-range-low"
-        type="range"
-        min={min}
-        max={max}
-        value={low}
-        aria-label={lowLabel}
-        onChange={(event) => onChange(Math.min(Number(event.target.value), high), high)}
-      />
-      <input
-        className="dual-range-input dual-range-high"
-        type="range"
-        min={min}
-        max={max}
-        value={high}
-        aria-label={highLabel}
-        onChange={(event) => onChange(low, Math.max(Number(event.target.value), low))}
-      />
-    </div>
   );
 }
 
@@ -1227,4 +1294,17 @@ async function readApiError(response: Response): Promise<string> {
   return response.status === 404
     ? "No songs match these filters yet."
     : "Something went wrong. Try again.";
+}
+
+export function createRoundRequest(filters: SetupFilters, excludeIds: number[]) {
+  return {
+    genres: filters.genres,
+    countries: filters.countries,
+    artist_id: filters.artist?.id ?? null,
+    year_min: filters.yearMin,
+    year_max: filters.yearMax,
+    popularity_min: filters.popularityMin,
+    popularity_max: filters.popularityMax,
+    exclude_ids: excludeIds,
+  };
 }

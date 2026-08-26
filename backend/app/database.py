@@ -32,8 +32,20 @@ def initialize_database(settings: Settings | None = None) -> Path:
         raise RuntimeError(f"No migrations found in {active_settings.migrations_dir}")
 
     with connect(active_settings.database_path) as connection:
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migrations ("
+            "name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
+        )
+        applied = {str(row[0]) for row in connection.execute("SELECT name FROM schema_migrations")}
         for migration_file in migration_files:
+            if migration_file.name in applied:
+                continue
             connection.executescript(migration_file.read_text(encoding="utf-8"))
+            connection.execute(
+                "INSERT INTO schema_migrations (name, applied_at) "
+                "VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                (migration_file.name,),
+            )
 
     return active_settings.database_path
 

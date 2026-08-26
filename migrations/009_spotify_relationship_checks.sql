@@ -1,0 +1,2 @@
+ALTER TABLE spotify_backfill_failures
+ADD COLUMN musicbrainz_relationship_checked_at TEXT;

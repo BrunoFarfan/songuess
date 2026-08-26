@@ -1,0 +1,2 @@
+ALTER TABLE spotify_backfill_failures
+ADD COLUMN catalog_lookup_checked_at TEXT;

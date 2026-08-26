@@ -1,0 +1,188 @@
+.tutorial-backdrop {
+  position: fixed;
+  z-index: 200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  overflow-y: auto;
+  background: rgba(4, 5, 4, 0.78);
+  backdrop-filter: blur(10px);
+  animation: tutorial-backdrop-in 260ms ease both;
+}
+.tutorial-sleeve {
+  position: relative;
+  width: min(31rem, 100%);
+  padding: clamp(1.45rem, 5vw, 2.35rem);
+  border: 1px solid rgba(244, 239, 229, 0.25);
+  overflow: hidden;
+  color: var(--ink);
+  background:
+    linear-gradient(135deg, transparent 0 48%, rgba(255, 101, 71, 0.055) 48% 52%, transparent 52%),
+    repeating-radial-gradient(
+      circle at 112% 105%,
+      rgba(244, 239, 229, 0.065) 0 1px,
+      transparent 1px 19px
+    ),
+    #171814;
+  box-shadow:
+    0.45rem 0.45rem 0 var(--accent),
+    0 2rem 6rem rgba(0, 0, 0, 0.7);
+  animation: tutorial-sleeve-in 420ms cubic-bezier(0.18, 0.82, 0.2, 1) both;
+}
+.tutorial-sleeve::after {
+  position: absolute;
+  width: 19rem;
+  aspect-ratio: 1;
+  right: -11rem;
+  bottom: -10rem;
+  border: 1px solid rgba(244, 239, 229, 0.1);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1.15rem rgba(244, 239, 229, 0.025),
+    0 0 0 2.5rem rgba(244, 239, 229, 0.025),
+    0 0 0 3.85rem rgba(244, 239, 229, 0.025);
+  content: "";
+  pointer-events: none;
+}
+.tutorial-backdrop.is-leaving {
+  animation: tutorial-backdrop-out 420ms ease both;
+}
+.tutorial-backdrop.is-leaving .tutorial-sleeve {
+  animation: tutorial-sleeve-out 420ms cubic-bezier(0.55, 0, 0.85, 0.2) both;
+}
+.tutorial-heading {
+  display: grid;
+  max-width: 26rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.4rem 1rem;
+  align-items: center;
+}
+.tutorial-heading h2 {
+  margin: 0;
+  color: var(--accent);
+  font-family: "Fraunces Variable", serif;
+  font-size: clamp(2.2rem, 9vw, 3.55rem);
+  font-weight: 760;
+  line-height: 0.92;
+  letter-spacing: -0.055em;
+}
+.tutorial-heading p {
+  grid-column: 1 / -1;
+  margin: 0.85rem 0 0;
+  color: #c9c4ba;
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+.tutorial-tracklist {
+  display: grid;
+  margin: 1.7rem 0 1.8rem;
+  padding: 0;
+  list-style: none;
+}
+.tutorial-tracklist li {
+  display: grid;
+  grid-template-columns: 2.2rem 1fr;
+  gap: 0.5rem;
+  padding: 0.78rem 0;
+}
+.tutorial-tracklist li > span {
+  padding-top: 0.12rem;
+  color: var(--accent);
+  font-family: "Fraunces Variable", serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.tutorial-tracklist strong {
+  display: block;
+  font-family: "Fraunces Variable", serif;
+  font-size: 1rem;
+}
+.tutorial-tracklist p {
+  margin: 0.12rem 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+.tutorial-footer {
+  position: relative;
+  z-index: 1;
+}
+.tutorial-mini-record {
+  display: grid;
+  width: 2.6rem;
+  aspect-ratio: 1;
+  place-items: center;
+  border-radius: 50%;
+  background: repeating-radial-gradient(circle, #0b0c0b 0 3px, #21221f 4px 5px);
+  box-shadow: 0 0 0 1px rgba(244, 239, 229, 0.25);
+}
+.tutorial-mini-record i {
+  width: 0.65rem;
+  aspect-ratio: 1;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--accent);
+}
+.tutorial-start {
+  display: block;
+  width: 100%;
+  min-height: 2.65rem;
+  border: 1px solid var(--accent);
+  color: #100e0c;
+  background: var(--accent);
+  box-shadow: 0.22rem 0.22rem 0 var(--ink);
+  font-size: 0.76rem;
+  font-weight: 820;
+  cursor: pointer;
+}
+@keyframes tutorial-backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes tutorial-sleeve-in {
+  from {
+    opacity: 0;
+    transform: translateY(1.8rem) rotate(-1.5deg) scale(0.96);
+  }
+}
+@keyframes tutorial-backdrop-out {
+  70%,
+  to {
+    background: transparent;
+    backdrop-filter: blur(0);
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes tutorial-sleeve-out {
+  55% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translate(calc(50vw - 2.5rem), calc(-50vh + 2.5rem)) scale(0.06) rotate(8deg);
+  }
+}
+@media (max-width: 32rem) {
+  .tutorial-backdrop {
+    place-items: start center;
+    padding: 0.75rem;
+  }
+  .tutorial-sleeve {
+    margin-block: max(0.4rem, env(safe-area-inset-top));
+  }
+  .tutorial-tracklist {
+    margin-block: 1.15rem;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-backdrop,
+  .tutorial-sleeve,
+  .tutorial-backdrop.is-leaving,
+  .tutorial-backdrop.is-leaving .tutorial-sleeve {
+    animation-duration: 0.01ms !important;
+  }
+}

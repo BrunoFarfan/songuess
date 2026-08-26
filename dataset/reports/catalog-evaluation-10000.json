@@ -1,0 +1,1201 @@
+{
+  "generated_at": "2026-08-26T02:56:13.223427+00:00",
+  "enabled_songs": 5000,
+  "decades": {
+    "1950": 2,
+    "1960": 78,
+    "1970": 219,
+    "1980": 254,
+    "1990": 566,
+    "2000": 1535,
+    "2010": 1503,
+    "2020": 843
+  },
+  "genres": {
+    "rock": 2154,
+    "alternative": 2064,
+    "pop": 1059,
+    "electronic": 554,
+    "metal": 508,
+    "hip-hop": 297,
+    "k-pop": 263,
+    "punk": 230,
+    "dance": 202,
+    "r&b": 152,
+    "soundtrack": 96,
+    "folk": 69,
+    "country": 29,
+    "other": 27,
+    "reggae": 10,
+    "jazz": 9,
+    "classical": 3,
+    "latin": 2
+  },
+  "countries": {
+    "US": 2862,
+    "GB": 902,
+    "KR": 308,
+    "CA": 293,
+    "AU": 118,
+    "FR": 97,
+    "DE": 67,
+    "NZ": 40,
+    "IS": 37,
+    "FI": 33,
+    "SE": 28,
+    "IE": 10,
+    "JM": 8,
+    "JP": 7,
+    "NO": 5,
+    "PR": 4,
+    "IT": 3,
+    "BR": 2,
+    "CO": 2,
+    "NL": 2,
+    "DK": 1,
+    "ES": 1,
+    "IN": 1,
+    "MX": 1,
+    "NG": 1,
+    "RU": 1
+  },
+  "popularity_bands": {
+    "0": 475,
+    "10": 500,
+    "20": 500,
+    "30": 500,
+    "40": 500,
+    "50": 500,
+    "60": 500,
+    "70": 500,
+    "80": 500,
+    "90": 500,
+    "100": 25
+  },
+  "most_represented_artists": [
+    {
+      "name": "BTS",
+      "song_count": 124
+    },
+    {
+      "name": "My Chemical Romance",
+      "song_count": 57
+    },
+    {
+      "name": "Tame Impala",
+      "song_count": 57
+    },
+    {
+      "name": "The Strokes",
+      "song_count": 57
+    },
+    {
+      "name": "Boards of Canada",
+      "song_count": 56
+    },
+    {
+      "name": "The Black Keys",
+      "song_count": 55
+    },
+    {
+      "name": "twenty one pilots",
+      "song_count": 55
+    },
+    {
+      "name": "Deftones",
+      "song_count": 52
+    },
+    {
+      "name": "Fall Out Boy",
+      "song_count": 52
+    },
+    {
+      "name": "Radiohead",
+      "song_count": 52
+    },
+    {
+      "name": "Kings of Leon",
+      "song_count": 51
+    },
+    {
+      "name": "Alice in Chains",
+      "song_count": 50
+    },
+    {
+      "name": "Rise Against",
+      "song_count": 50
+    },
+    {
+      "name": "Disturbed",
+      "song_count": 48
+    },
+    {
+      "name": "Arctic Monkeys",
+      "song_count": 47
+    },
+    {
+      "name": "Panic! at the Disco",
+      "song_count": 47
+    },
+    {
+      "name": "Paramore",
+      "song_count": 47
+    },
+    {
+      "name": "Grimes",
+      "song_count": 46
+    },
+    {
+      "name": "Rammstein",
+      "song_count": 46
+    },
+    {
+      "name": "Modest Mouse",
+      "song_count": 45
+    },
+    {
+      "name": "Billie Eilish",
+      "song_count": 43
+    },
+    {
+      "name": "Creedence Clearwater Revival",
+      "song_count": 43
+    },
+    {
+      "name": "Franz Ferdinand",
+      "song_count": 43
+    },
+    {
+      "name": "Limp Bizkit",
+      "song_count": 43
+    },
+    {
+      "name": "M83",
+      "song_count": 42
+    }
+  ],
+  "lowest_stream_songs": [
+    {
+      "title": "Rotwrapped Corpse",
+      "artist": "Regurgitasi",
+      "stream_count": 0
+    },
+    {
+      "title": "Lovesong",
+      "artist": "The Cure",
+      "stream_count": 1818
+    },
+    {
+      "title": "Like",
+      "artist": "Future 3",
+      "stream_count": 4743
+    },
+    {
+      "title": "Moratorium",
+      "artist": "diig",
+      "stream_count": 19404
+    },
+    {
+      "title": "Running",
+      "artist": "Jae Jin",
+      "stream_count": 23460
+    },
+    {
+      "title": "Mine",
+      "artist": "BUMKEY, SURAN & dress",
+      "stream_count": 23719
+    },
+    {
+      "title": "Basic Space (Pariah Remix)",
+      "artist": "The xx",
+      "stream_count": 51267
+    },
+    {
+      "title": "EXACTLY WHAT YOU RUN FROM YOU END UP CHASING",
+      "artist": "Tyler, The Creator",
+      "stream_count": 73038
+    },
+    {
+      "title": "Rolling in the Deep (Jamie xx Shuffle)",
+      "artist": "Adele",
+      "stream_count": 90714
+    },
+    {
+      "title": "Slowfall Guillotine Prompt",
+      "artist": "Kobaryo",
+      "stream_count": 93914
+    },
+    {
+      "title": "This Fffire",
+      "artist": "Franz Ferdinand",
+      "stream_count": 94681
+    },
+    {
+      "title": "The Rain Falls And The Sky Shudders",
+      "artist": "Moby",
+      "stream_count": 96888
+    },
+    {
+      "title": "I Found a Boy",
+      "artist": "Adele",
+      "stream_count": 96918
+    },
+    {
+      "title": "Loops of Fury",
+      "artist": "The Chemical Brothers",
+      "stream_count": 97693
+    },
+    {
+      "title": "Ghost In A Ditch",
+      "artist": "Franz Ferdinand",
+      "stream_count": 108570
+    },
+    {
+      "title": "Rise of the Titans End Credits",
+      "artist": "The Crystal Method",
+      "stream_count": 117931
+    },
+    {
+      "title": "You Never Go Out Anymore",
+      "artist": "Franz Ferdinand",
+      "stream_count": 127371
+    },
+    {
+      "title": "Vocal Outtakes",
+      "artist": "Brian Eno & David Byrne",
+      "stream_count": 137371
+    },
+    {
+      "title": "running",
+      "artist": "key vs. locket",
+      "stream_count": 144222
+    },
+    {
+      "title": "Walcott (Insane Mix)",
+      "artist": "Vampire Weekend",
+      "stream_count": 167777
+    },
+    {
+      "title": "New Kind Of Thrill",
+      "artist": "Franz Ferdinand",
+      "stream_count": 170195
+    },
+    {
+      "title": "Don't Start",
+      "artist": "Franz Ferdinand",
+      "stream_count": 178703
+    },
+    {
+      "title": "Lilith (Diablo IV Anthem)",
+      "artist": "Halsey, SUGA of BTS",
+      "stream_count": 179326
+    },
+    {
+      "title": "She Stands Up",
+      "artist": "M83",
+      "stream_count": 183063
+    },
+    {
+      "title": "Wizards Theme",
+      "artist": "Jeff Danna",
+      "stream_count": 190490
+    }
+  ],
+  "duplicates": {
+    "musicbrainz": 0,
+    "apple": 0,
+    "spotify": 2
+  },
+  "questionable_versions": [
+    {
+      "id": 1896,
+      "title": "Live Wire",
+      "artist": "AC/DC",
+      "album": "High Voltage"
+    },
+    {
+      "id": 3673,
+      "title": "T.N.T. (Live)",
+      "artist": "AC/DC",
+      "album": "Live"
+    },
+    {
+      "id": 3491,
+      "title": "Cold Shoulder (Basement Jaxx Classic Remix)",
+      "artist": "Adele",
+      "album": "Cold Shoulder - EP"
+    },
+    {
+      "id": 2456,
+      "title": "Hometown Glory (High Contrast Remix)",
+      "artist": "Adele",
+      "album": "Hometown Glory - Single"
+    },
+    {
+      "id": 4607,
+      "title": "Nine Lives",
+      "artist": "Aerosmith",
+      "album": "Nine Lives"
+    },
+    {
+      "id": 1707,
+      "title": "Bleed the Freak (Live)",
+      "artist": "Alice In Chains",
+      "album": "Live"
+    },
+    {
+      "id": 1360,
+      "title": "Heaven Beside You (Live)",
+      "artist": "Alice In Chains",
+      "album": "MTV Unplugged (Live)"
+    },
+    {
+      "id": 2763,
+      "title": "Man In the Box (Live)",
+      "artist": "Alice In Chains",
+      "album": "Live"
+    },
+    {
+      "id": 2931,
+      "title": "Queen of the Rodeo (Live)",
+      "artist": "Alice In Chains",
+      "album": "Live"
+    },
+    {
+      "id": 3453,
+      "title": "Wasted Hours (A Life We Can Live)",
+      "artist": "Arcade Fire",
+      "album": "The Suburbs (Deluxe)"
+    },
+    {
+      "id": 919,
+      "title": "Pretty Visitors (Live)",
+      "artist": "Arctic Monkeys",
+      "album": "Live at the Royal Albert Hall"
+    },
+    {
+      "id": 1253,
+      "title": "The Hellcat Spangled Shalalala (Live)",
+      "artist": "Arctic Monkeys",
+      "album": "iTunes Festival: London 2011 - EP"
+    },
+    {
+      "id": 4270,
+      "title": "Levels (Skrillex Remix)",
+      "artist": "Avicii",
+      "album": "Body By Jake: Boot Camp Workout (BPM 126-140)"
+    },
+    {
+      "id": 4692,
+      "title": "My Feelings for You (Digital Lab Remix)",
+      "artist": "Avicii & Sebastien Drums",
+      "album": "My Feelings for You"
+    },
+    {
+      "id": 4770,
+      "title": "Nobody's Home (Live Acoustic Version)",
+      "artist": "Avril Lavigne",
+      "album": "12\" Masters - The Essential Mixes"
+    },
+    {
+      "id": 27,
+      "title": "Blood Sweat & Tears (Live)",
+      "artist": "BTS",
+      "album": "PERMISSION TO DANCE ON STAGE (LIVE)"
+    },
+    {
+      "id": 33,
+      "title": "Burning Up (FIRE) [Live]",
+      "artist": "BTS",
+      "album": "PERMISSION TO DANCE ON STAGE (LIVE)"
+    },
+    {
+      "id": 90,
+      "title": "Dis-ease (Live)",
+      "artist": "BTS",
+      "album": "PERMISSION TO DANCE ON STAGE (LIVE)"
+    },
+    {
+      "id": 50,
+      "title": "Dope (Live)",
+      "artist": "BTS",
+      "album": "PERMISSION TO DANCE ON STAGE (LIVE)"
+    },
+    {
+      "id": 549,
+      "title": "IDOL (Live)",
+      "artist": "BTS",
+      "album": "PERMISSION TO DANCE ON STAGE (LIVE)"
+    },
+    {
+      "id": 567,
+      "title": "MIC Drop (Steve Aoki Remix) [Full Length Edition]",
+      "artist": "BTS",
+      "album": "Love Yourself \u7d50 'Answer'"
+    },
+    {
+      "id": 52,
+      "title": "SWIM (Instrumental)",
+      "artist": "BTS",
+      "album": "SWIM (Instrumental) - Single"
+    },
+    {
+      "id": 110,
+      "title": "SWIM with SUGA (Melodic Techno Remix)",
+      "artist": "BTS",
+      "album": "KEEP SWIMMING"
+    },
+    {
+      "id": 94,
+      "title": "Telepathy (Live)",
+      "artist": "BTS",
+      "album": "PERMISSION TO DANCE ON STAGE (LIVE)"
+    },
+    {
+      "id": 2568,
+      "title": "Body Movin' (Fatboy Slim Remix)",
+      "artist": "Beastie Boys",
+      "album": "Solid Gold Hits"
+    },
+    {
+      "id": 2842,
+      "title": "Stayin' Alive",
+      "artist": "Bee Gees",
+      "album": "Saturday Night Fever (The Original Movie Soundtrack) [Deluxe Edition]"
+    },
+    {
+      "id": 858,
+      "title": "The Blood (Live)",
+      "artist": "Bethel Music & David Funk",
+      "album": "Moments: Wait (Live)"
+    },
+    {
+      "id": 3765,
+      "title": "Iron Man (Live)",
+      "artist": "Black Sabbath",
+      "album": "Reunion (Live)"
+    },
+    {
+      "id": 3155,
+      "title": "Live Forever",
+      "artist": "Black Sabbath",
+      "album": "13 (Deluxe Edition)"
+    },
+    {
+      "id": 4870,
+      "title": "Rastaman Live Up!",
+      "artist": "Bob Marley & The Wailers",
+      "album": "Confrontation (2013 Remaster)"
+    },
+    {
+      "id": 4928,
+      "title": "All In Forms (Mike Slott Remix)",
+      "artist": "Bonobo",
+      "album": "Black Sands Remixed (Bonus Track Version)"
+    },
+    {
+      "id": 4807,
+      "title": "Kiara (Cosmin TRG Remix)",
+      "artist": "Bonobo",
+      "album": "Black Sands Remixed (Bonus Track Version)"
+    },
+    {
+      "id": 4624,
+      "title": "Walk In the Sky (Instrumental)",
+      "artist": "Bonobo",
+      "album": "Days To Come"
+    },
+    {
+      "id": 3093,
+      "title": "Chelsea Smile (Kc Blitz Remix)",
+      "artist": "Bring Me The Horizon",
+      "album": "Suicide Season (Deluxe Edition)"
+    },
+    {
+      "id": 3145,
+      "title": "Chelsea Smile (Travis Mccoy Remix)",
+      "artist": "Bring Me The Horizon",
+      "album": "Suicide Season (Deluxe Edition)"
+    },
+    {
+      "id": 2972,
+      "title": "Death Breath (Toxic Avenger Remix)",
+      "artist": "Bring Me The Horizon",
+      "album": "Suicide Season (Deluxe Edition)"
+    },
+    {
+      "id": 3055,
+      "title": "Diamonds Aren't Forever (I Haunt Wizards Remix)",
+      "artist": "Bring Me The Horizon",
+      "album": "Suicide Season (Deluxe Edition)"
+    },
+    {
+      "id": 3033,
+      "title": "Football Season Is Over (After the Night Remix)",
+      "artist": "Bring Me The Horizon",
+      "album": "Suicide Season (Deluxe Edition)"
+    },
+    {
+      "id": 3166,
+      "title": "Football Season Is Over (Utah Saints Remix)",
+      "artist": "Bring Me The Horizon",
+      "album": "Suicide Season (Deluxe Edition)"
+    },
+    {
+      "id": 3085,
+      "title": "It Was Written in Blood (L' Amour La Morgue Remix)",
+      "artist": "Bring Me The Horizon",
+      "album": "Suicide Season (Deluxe Edition)"
+    },
+    {
+      "id": 3262,
+      "title": "Sleep with One Eye Open (M. Shawn Crahan Remix)",
+      "artist": "Bring Me The Horizon",
+      "album": "Suicide Season (Deluxe Edition)"
+    },
+    {
+      "id": 2990,
+      "title": "The Comedown (Robotsonics Remix)",
+      "artist": "Bring Me The Horizon",
+      "album": "Suicide Season (Deluxe Edition)"
+    },
+    {
+      "id": 3028,
+      "title": "The Sadness Will Never End (Skrillex Remix)",
+      "artist": "Bring Me The Horizon",
+      "album": "Suicide Season (Deluxe Edition)"
+    },
+    {
+      "id": 3614,
+      "title": "Everytime (Hi-Bias Radio Remix)",
+      "artist": "Britney Spears",
+      "album": "Greatest Hits: My Prerogative"
+    },
+    {
+      "id": 3578,
+      "title": "Grenade (Passion Pit Remix)",
+      "artist": "Bruno Mars",
+      "album": "The Grenade Sessions - EP"
+    },
+    {
+      "id": 3738,
+      "title": "Feel So Close (Benny Benassi Remix)",
+      "artist": "Calvin Harris",
+      "album": "Feel So Close (Remixes) - EP"
+    },
+    {
+      "id": 3689,
+      "title": "Heartbeat (Them Jeans Remix)",
+      "artist": "Childish Gambino",
+      "album": "Kitsun\u00e9 America (Deluxe Edition)"
+    },
+    {
+      "id": 4784,
+      "title": "Suffocation (Memory Tapes Remix)",
+      "artist": "Crystal Castles",
+      "album": "Crystal Castles (II)"
+    },
+    {
+      "id": 3785,
+      "title": "Aerodynamic Beats / Gabrielle , Forget About the World (Live)",
+      "artist": "Daft Punk",
+      "album": "Alive 2007"
+    },
+    {
+      "id": 1393,
+      "title": "Around the World / Harder, Better, Faster, Stronger (Live)",
+      "artist": "Daft Punk",
+      "album": "Alive 2007"
+    },
+    {
+      "id": 997,
+      "title": "Face to Face / Short Circuit (Live)",
+      "artist": "Daft Punk",
+      "album": "Alive 2007"
+    },
+    {
+      "id": 2615,
+      "title": "If Only Tonight We Could Sleep (Live)",
+      "artist": "Deftones",
+      "album": "Covers"
+    },
+    {
+      "id": 2237,
+      "title": "Your Latest Trick (Live)",
+      "artist": "Dire Straits",
+      "album": "Sultans of Swing: The Very Best of Dire Straits"
+    },
+    {
+      "id": 4066,
+      "title": "I'm Alive",
+      "artist": "Disturbed",
+      "album": "Ten Thousand Fists"
+    },
+    {
+      "id": 4632,
+      "title": "Under the Sheets (Jakwob Remix)",
+      "artist": "Ellie Goulding",
+      "album": "Lights 10"
+    },
+    {
+      "id": 3761,
+      "title": "Cold Heart (PNAU Remix)",
+      "artist": "Elton John & Dua Lipa",
+      "album": "Cold Heart (PNAU Remix) - Single"
+    },
+    {
+      "id": 4772,
+      "title": "Bring Me To Life (Live)",
+      "artist": "Evanescence",
+      "album": "Synthesis Live"
+    },
+    {
+      "id": 2786,
+      "title": "Dog Days Are Over (Yeasayer Remix)",
+      "artist": "Florence + the Machine",
+      "album": "Lungs (Deluxe Edition)"
+    },
+    {
+      "id": 1458,
+      "title": "Spectrum (Say My Name) [Calvin Harris Remix]",
+      "artist": "Florence + the Machine",
+      "album": "Spectrum (Say My Name) - EP"
+    },
+    {
+      "id": 4046,
+      "title": "Live Alone",
+      "artist": "Franz Ferdinand",
+      "album": "Tonight"
+    },
+    {
+      "id": 1847,
+      "title": "Mr. Brownstone (Live)",
+      "artist": "Guns N' Roses",
+      "album": "Live Era '87-'93"
+    },
+    {
+      "id": 1992,
+      "title": "Pretty Tied Up (Live)",
+      "artist": "Guns N' Roses",
+      "album": "Live Era '87-'93"
+    },
+    {
+      "id": 4943,
+      "title": "Pioneer To The Falls (Live)",
+      "artist": "Interpol",
+      "album": "Live at Third Man Records"
+    },
+    {
+      "id": 4688,
+      "title": "Public Pervert (Carlos D Remix)",
+      "artist": "Interpol",
+      "album": "Antics (The Special Edition)"
+    },
+    {
+      "id": 555,
+      "title": "Savage Love (Laxed - Siren Beat) [BTS Remix] [Instrumental]",
+      "artist": "Jawsh 685, Jason Derulo & BTS",
+      "album": "Savage Love (Laxed - Siren Beat) [BTS Remix] - Single"
+    },
+    {
+      "id": 493,
+      "title": "Who (Acoustic Remix)",
+      "artist": "Jimin",
+      "album": "MUSE (WONDER ver.)"
+    },
+    {
+      "id": 577,
+      "title": "Who (Beautiful Mind Remix)",
+      "artist": "Jimin",
+      "album": "MUSE (WANDER ver.)"
+    },
+    {
+      "id": 562,
+      "title": "Who (Funky Remix)",
+      "artist": "Jimin",
+      "album": "MUSE (WANDER ver.)"
+    },
+    {
+      "id": 484,
+      "title": "Who (Rock Remix)",
+      "artist": "Jimin",
+      "album": "MUSE (WONDER ver.)"
+    },
+    {
+      "id": 560,
+      "title": "Who (Shibuyakei Remix)",
+      "artist": "Jimin",
+      "album": "MUSE (WANDER ver.)"
+    },
+    {
+      "id": 2612,
+      "title": "San Quentin (Live)",
+      "artist": "Johnny Cash",
+      "album": "At San Quentin (Legacy Edition) [Live]"
+    },
+    {
+      "id": 3323,
+      "title": "I Kissed a Girl (Rock Remix)",
+      "artist": "Katy Perry",
+      "album": "I Kissed a Girl (Remixes) - EP"
+    },
+    {
+      "id": 3971,
+      "title": "Taper Jean Girl (Live)",
+      "artist": "Kings of Leon",
+      "album": "Day Old Belgian Blues (Live In Belgium) - EP"
+    },
+    {
+      "id": 3360,
+      "title": "Alive",
+      "artist": "Korn",
+      "album": "Take A Look In The Mirror"
+    },
+    {
+      "id": 3126,
+      "title": "Bad Romance (Starsmith Remix)",
+      "artist": "Lady Gaga",
+      "album": "The Fame Monster (Deluxe Edition)"
+    },
+    {
+      "id": 2815,
+      "title": "Paparazzi (Stuart Price Remix)",
+      "artist": "Lady Gaga",
+      "album": "The Remix"
+    },
+    {
+      "id": 4091,
+      "title": "Eat You Alive",
+      "artist": "Limp Bizkit",
+      "album": "Results May Vary"
+    },
+    {
+      "id": 3495,
+      "title": "Don't Save Us From the Flames (Superpitcher remix)",
+      "artist": "M83",
+      "album": "Before the Dawn Heals Us Remixes & B-Sides"
+    },
+    {
+      "id": 3492,
+      "title": "Midnight City (Man Without Country Remix)",
+      "artist": "M83",
+      "album": "Midnight City - EP"
+    },
+    {
+      "id": 4758,
+      "title": "? (Instrumental)",
+      "artist": "MF DOOM",
+      "album": "Operation: Doomsday (Complete)"
+    },
+    {
+      "id": 1641,
+      "title": "Electric Feel (Justice Remix)",
+      "artist": "MGMT",
+      "album": "Electric Feel (Justice Remix) - Single"
+    },
+    {
+      "id": 3643,
+      "title": "Siberian Breaks (Ed Banger All-Stars Remix)",
+      "artist": "MGMT",
+      "album": "Congratulations (Remixes) - EP"
+    },
+    {
+      "id": 2392,
+      "title": "If I Ain't Got You (Live)",
+      "artist": "Maroon 5",
+      "album": "Hands All Over (Deluxe Edition)"
+    },
+    {
+      "id": 2973,
+      "title": "Girl I Love You (She Is Danger Remix)",
+      "artist": "Massive Attack",
+      "album": "Heligoland (Deluxe Edition)"
+    },
+    {
+      "id": 2068,
+      "title": "Paradise Circus (Gui Boratto Remix)",
+      "artist": "Massive Attack",
+      "album": "Heligoland (Deluxe Edition)"
+    },
+    {
+      "id": 914,
+      "title": "The Sharpest Lives",
+      "artist": "My Chemical Romance",
+      "album": "The Black Parade"
+    },
+    {
+      "id": 4985,
+      "title": "The Crow, The Owl And The Dove (Instrumental)",
+      "artist": "Nightwish",
+      "album": "Imaginaerum"
+    },
+    {
+      "id": 1159,
+      "title": "Where Did You Sleep Last Night (Live Acoustic)",
+      "artist": "Nirvana",
+      "album": "MTV Unplugged In New York (Live Acoustic)"
+    },
+    {
+      "id": 4644,
+      "title": "I Lived",
+      "artist": "OneRepublic",
+      "album": "Native (Deluxe)"
+    },
+    {
+      "id": 4537,
+      "title": "Wheelz Of Steel (Instrumental)",
+      "artist": "Outkast",
+      "album": "ATLiens (25th Anniversary Deluxe Edition)"
+    },
+    {
+      "id": 2576,
+      "title": "Alive",
+      "artist": "Pearl Jam",
+      "album": "Ten"
+    },
+    {
+      "id": 2892,
+      "title": "Rockin' In the Free World (Live)",
+      "artist": "Pearl Jam",
+      "album": "2000.06.15 - Katowice, Poland (Live)"
+    },
+    {
+      "id": 3445,
+      "title": "Shine On You Crazy Diamond (Live)",
+      "artist": "Pink Floyd",
+      "album": "Delicate Sound of Thunder (Live)"
+    },
+    {
+      "id": 2557,
+      "title": "Bulls On Parade (Live)",
+      "artist": "Rage Against the Machine",
+      "album": "Live at the Grand Olympic Auditorium"
+    },
+    {
+      "id": 3775,
+      "title": "Du riechst so gut (Live)",
+      "artist": "Rammstein",
+      "album": "Paris (Live)"
+    },
+    {
+      "id": 3407,
+      "title": "Ich will (Live)",
+      "artist": "Rammstein",
+      "album": "Paris (Live)"
+    },
+    {
+      "id": 4285,
+      "title": "Alive and Well",
+      "artist": "Rise Against",
+      "album": "The Unraveling (Remastered Reissue with Bonus Tracks)"
+    },
+    {
+      "id": 2937,
+      "title": "Breathe Me (Mr Dan Remix)",
+      "artist": "Sia",
+      "album": "Colour the Small One (Deluxe Edition)"
+    },
+    {
+      "id": 3164,
+      "title": "Breathe Me (Ulrich Schnauss Remix) [Bonus Track]",
+      "artist": "Sia",
+      "album": "Colour the Small One (Bonus Track Version)"
+    },
+    {
+      "id": 4791,
+      "title": "American Tune (Live)",
+      "artist": "Simon & Garfunkel",
+      "album": "The Concert In Central Park (Live)"
+    },
+    {
+      "id": 4991,
+      "title": "Old Friends / Bookends Theme (Live)",
+      "artist": "Simon & Garfunkel",
+      "album": "The Concert In Central Park (Live)"
+    },
+    {
+      "id": 4813,
+      "title": "Wake Up Little Susie (Live)",
+      "artist": "Simon & Garfunkel",
+      "album": "The Concert In Central Park (Live)"
+    },
+    {
+      "id": 3003,
+      "title": "Scary Monsters and Nice Sprites (Kaskade Remix)",
+      "artist": "Skrillex",
+      "album": "More Monsters and Sprites"
+    },
+    {
+      "id": 2703,
+      "title": "Wait and Bleed (Live)",
+      "artist": "Slipknot",
+      "album": "Day of the Gusano (Live)"
+    },
+    {
+      "id": 3409,
+      "title": "Burning Down the House (Live)",
+      "artist": "Talking Heads",
+      "album": "Stop Making Sense (Live) [Special New Edition]"
+    },
+    {
+      "id": 2324,
+      "title": "New Feeling (Live)",
+      "artist": "Talking Heads",
+      "album": "The Name of This Band Is Talking Heads (Live) [Expanded Version]"
+    },
+    {
+      "id": 3723,
+      "title": "Once In a Lifetime (Live)",
+      "artist": "Talking Heads",
+      "album": "Stop Making Sense (Live) [Special New Edition]"
+    },
+    {
+      "id": 2380,
+      "title": "Pulled Up (Live)",
+      "artist": "Talking Heads",
+      "album": "The Name of This Band Is Talking Heads (Live) [Expanded Version]"
+    },
+    {
+      "id": 3741,
+      "title": "Lucidity (Pilooski Remix)",
+      "artist": "Tame Impala",
+      "album": "InnerSpeaker B-Sides & Remixes - EP"
+    },
+    {
+      "id": 4512,
+      "title": "Alive Alone",
+      "artist": "The Chemical Brothers",
+      "album": "Exit Planet Dust"
+    },
+    {
+      "id": 4785,
+      "title": "Swoon (Boys Noize Summer Remix)",
+      "artist": "The Chemical Brothers",
+      "album": "Swoon - EP"
+    },
+    {
+      "id": 1245,
+      "title": "The World We Live In",
+      "artist": "The Killers",
+      "album": "Day & Age"
+    },
+    {
+      "id": 4396,
+      "title": "I Should Live in Salt",
+      "artist": "The National",
+      "album": "Trouble Will Find Me"
+    },
+    {
+      "id": 1932,
+      "title": "Special Delivery",
+      "artist": "The Offspring",
+      "album": "Conspiracy of One"
+    },
+    {
+      "id": 4451,
+      "title": "The Bed's Too Big Without You (Live 1979)",
+      "artist": "The Police",
+      "album": "Live! (Remastered)"
+    },
+    {
+      "id": 3507,
+      "title": "Breathe (Zeds Dead Remix)",
+      "artist": "The Prodigy",
+      "album": "Smack My Bitch Up (Noisia Remix) / Breathe (Zeds Dead Remix) - Single"
+    },
+    {
+      "id": 2206,
+      "title": "I'll Try Anything Once (\"You Only Live Once\" Demo) [Heart In a Cage B-Side]",
+      "artist": "The Strokes",
+      "album": "The Singles, Vol. 1"
+    },
+    {
+      "id": 2862,
+      "title": "You Only Live Once",
+      "artist": "The Strokes",
+      "album": "First Impressions Of Earth"
+    },
+    {
+      "id": 3175,
+      "title": "Basic Space (Pariah Remix)",
+      "artist": "The xx",
+      "album": "Basic Space (Remixes) - Single"
+    },
+    {
+      "id": 3267,
+      "title": "Basic Space (Sampha Remix)",
+      "artist": "The xx",
+      "album": "Basic Space (Remixes) - Single"
+    },
+    {
+      "id": 2932,
+      "title": "Crystalised (Dark Sky Remix)",
+      "artist": "The xx",
+      "album": "Crystalised (Remixes) - EP"
+    },
+    {
+      "id": 3026,
+      "title": "Crystalised (Edu Imbernon Remix)",
+      "artist": "The xx",
+      "album": "Crystalised (Remixes) - EP"
+    },
+    {
+      "id": 3143,
+      "title": "Crystalised (Rory Phillips Remix)",
+      "artist": "The xx",
+      "album": "Crystalised (Remixes) - EP"
+    },
+    {
+      "id": 3084,
+      "title": "Crystalised (The Neon Lights Remix)",
+      "artist": "The xx",
+      "album": "Crystalised (Remixes) - EP"
+    },
+    {
+      "id": 3298,
+      "title": "Islands (Delorean Remix)",
+      "artist": "The xx",
+      "album": "Islands (Remixes) - EP"
+    },
+    {
+      "id": 2925,
+      "title": "Islands (Nosaj Thing Remix)",
+      "artist": "The xx",
+      "album": "Islands (Remixes) - EP"
+    },
+    {
+      "id": 2940,
+      "title": "VCR (Four Tet Remix)",
+      "artist": "The xx",
+      "album": "VCR EP"
+    },
+    {
+      "id": 2943,
+      "title": "VCR (Matthew Dear Remix)",
+      "artist": "The xx",
+      "album": "VCR EP"
+    },
+    {
+      "id": 871,
+      "title": "String Theory (Instrumental)",
+      "artist": "Vally.exe & SoundCirclet",
+      "album": "String Theory - Single"
+    },
+    {
+      "id": 4571,
+      "title": "The Kids Don't Stand a Chance (Chromeo Remix)",
+      "artist": "Vampire Weekend",
+      "album": "The Kids Don't Stand a Chance - Single"
+    },
+    {
+      "id": 3346,
+      "title": "I Don\u2019t Wanna Live Forever (Fifty Shades Darker)",
+      "artist": "ZAYN & Taylor Swift",
+      "album": "Fifty Shades Darker (Original Motion Picture Soundtrack)"
+    },
+    {
+      "id": 4901,
+      "title": "Ghosts 'n' Stuff (feat. Rob Swire) [Original Instrumental Mix]",
+      "artist": "deadmau5",
+      "album": "Ghosts 'n' Stuff (feat. Rob Swire) [Original Instrumental Mix] - Single"
+    }
+  ],
+  "storage": {
+    "database_bytes": 5738496,
+    "cache_bytes": 182703312,
+    "added_since_baseline": 0,
+    "per_added_song": null
+  },
+  "provider_metrics": [
+    {
+      "run_id": "1bd8f027-fc18-4807-b459-bb68fca8f0cf",
+      "provider": "listenbrainz",
+      "metric": "cache_hits",
+      "value": 13
+    },
+    {
+      "run_id": "1bd8f027-fc18-4807-b459-bb68fca8f0cf",
+      "provider": "listenbrainz",
+      "metric": "requests",
+      "value": 1
+    },
+    {
+      "run_id": "1bd8f027-fc18-4807-b459-bb68fca8f0cf",
+      "provider": "listenbrainz",
+      "metric": "downloaded_bytes",
+      "value": 169
+    },
+    {
+      "run_id": "1bd8f027-fc18-4807-b459-bb68fca8f0cf",
+      "provider": "listenbrainz",
+      "metric": "retries",
+      "value": 1
+    },
+    {
+      "run_id": "be89493e-dd77-4806-8d46-405708a39a04",
+      "provider": "listenbrainz",
+      "metric": "cache_hits",
+      "value": 19
+    },
+    {
+      "run_id": "be89493e-dd77-4806-8d46-405708a39a04",
+      "provider": "listenbrainz",
+      "metric": "requests",
+      "value": 5
+    },
+    {
+      "run_id": "be89493e-dd77-4806-8d46-405708a39a04",
+      "provider": "listenbrainz",
+      "metric": "downloaded_bytes",
+      "value": 513397
+    },
+    {
+      "run_id": "be89493e-dd77-4806-8d46-405708a39a04",
+      "provider": "listenbrainz",
+      "metric": "retries",
+      "value": 1
+    }
+  ],
+  "pipeline_runs": [
+    {
+      "operation": "discover",
+      "started_at": "2026-08-26T02:45:46.555471+00:00",
+      "finished_at": "2026-08-26T02:45:48.162276+00:00",
+      "status": "complete",
+      "accepted_songs": 0
+    },
+    {
+      "operation": "discover",
+      "started_at": "2026-08-26T02:48:12.865774+00:00",
+      "finished_at": "2026-08-26T02:48:21.580171+00:00",
+      "status": "complete",
+      "accepted_songs": 0
+    },
+    {
+      "operation": "evaluate",
+      "started_at": "2026-08-26T02:50:41.382713+00:00",
+      "finished_at": "2026-08-26T02:50:41.432091+00:00",
+      "status": "complete",
+      "accepted_songs": 0
+    },
+    {
+      "operation": "export-delta",
+      "started_at": "2026-08-26T02:50:41.383943+00:00",
+      "finished_at": "2026-08-26T02:50:41.419015+00:00",
+      "status": "complete",
+      "accepted_songs": 0
+    },
+    {
+      "operation": "evaluate",
+      "started_at": "2026-08-26T02:56:13.167973+00:00",
+      "finished_at": null,
+      "status": "running",
+      "accepted_songs": 0
+    }
+  ],
+  "projection": {
+    "at_20000": null,
+    "at_25000": null,
+    "status": "awaiting 10k pilot"
+  }
+}

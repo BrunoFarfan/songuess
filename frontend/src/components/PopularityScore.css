@@ -1,0 +1,41 @@
+.popularity-score {
+  --popularity-color: var(--accent, #ff6547);
+  display: grid;
+  grid-template-columns: auto minmax(3.5rem, 5.5rem) auto;
+  gap: 0.45rem;
+  align-items: center;
+  width: fit-content;
+  color: var(--popularity-color);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.popularity-score__track {
+  display: block;
+  height: 0.28rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--popularity-color) 42%, transparent);
+  background: color-mix(in srgb, var(--popularity-color) 10%, transparent);
+}
+
+.popularity-score__track > span {
+  display: block;
+  width: var(--popularity-value);
+  height: 100%;
+  background: currentColor;
+}
+
+.popularity-score__value > span {
+  margin-left: 0.08rem;
+  opacity: 0.58;
+  font-size: 0.52rem;
+  font-weight: 650;
+}
+
+.popularity-score.is-unavailable {
+  opacity: 0.62;
+}

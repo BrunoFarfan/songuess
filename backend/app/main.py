@@ -5,13 +5,23 @@ from fastapi import FastAPI, HTTPException, Query
 
 from app.database import database_connection, initialize_database
 from app.models import (
+    ArtistOption,
+    FilterContextRequest,
     FilterMetadata,
     RoundRequest,
     RoundResponse,
     SongReveal,
-    SongSearchResult,
+    SongSearchPage,
 )
-from app.repository import choose_round, get_filter_metadata, get_song, search_songs
+from app.repository import (
+    choose_round,
+    count_searchable_songs,
+    get_contextual_filter_metadata,
+    get_filter_metadata,
+    get_song,
+    search_artists,
+    search_songs,
+)
 
 
 @asynccontextmanager
@@ -51,10 +61,28 @@ def create_round(request: RoundRequest) -> RoundResponse:
     return round_response
 
 
-@app.get("/api/songs/search", response_model=list[SongSearchResult])
-def songs_search(q: str = Query(min_length=2, max_length=120)) -> list[SongSearchResult]:
+@app.get("/api/songs/search", response_model=SongSearchPage)
+def songs_search(
+    q: str = Query(default="", max_length=120),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=40, ge=1, le=100),
+) -> SongSearchPage:
     with database_connection() as connection:
-        return search_songs(connection, q)
+        items = search_songs(connection, q, limit=limit, offset=offset)
+        total = count_searchable_songs(connection)
+    return SongSearchPage(
+        items=items,
+        offset=offset,
+        limit=limit,
+        total=total,
+        has_more=offset + len(items) < total,
+    )
+
+
+@app.get("/api/artists/search", response_model=list[ArtistOption])
+def artists_search(q: str = Query(min_length=1, max_length=120)) -> list[ArtistOption]:
+    with database_connection() as connection:
+        return search_artists(connection, q)
 
 
 @app.get(
@@ -77,3 +105,9 @@ def song_reveal(song_id: int) -> SongReveal:
 def filters() -> FilterMetadata:
     with database_connection() as connection:
         return get_filter_metadata(connection)
+
+
+@app.post("/api/filters/context", response_model=FilterMetadata)
+def contextual_filters(request: FilterContextRequest) -> FilterMetadata:
+    with database_connection() as connection:
+        return get_contextual_filter_metadata(connection, request)

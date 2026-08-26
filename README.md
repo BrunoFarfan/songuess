@@ -17,8 +17,7 @@ The runtime frontend and backend read a local catalog built offline from public 
 │   ├── src/pages/           # Astro shell
 │   ├── package.json
 │   └── pnpm-lock.yaml
-├── migrations/
-│   └── 001_initial.sql      # SQLite/D1-compatible catalog schema
+├── migrations/              # Ordered, tracked SQLite/D1-compatible schema changes
 ├── dataset/                 # Resumable offline catalog importer
 ├── .env.example
 └── plan.md
@@ -67,24 +66,66 @@ number of songs to add. For example, to reach exactly 5,000 validated songs from
 just populate-5000
 ```
 
-The importer merges ListenBrainz's precomputed top 1,000 sitewide charts from all-time through
-weekly windows with recordings from up to 1,000 naturally ranked artists, then globally ranks the
-deduplicated candidates by listen count. It enriches recording IDs through a resumable MusicBrainz
-SQLite cache, confidently matches Apple tracks, validates previews with bounded concurrency, and
-performs idempotent upserts deduplicated by both MusicBrainz and Apple IDs. Cached negative Apple
-matches expire, transient preview failures remain retryable, and popularity is normalized over the
-entire enabled catalog. No decade quotas or weights are applied.
+Discovery and popularity scoring are separate pipelines. Discovery seeds recording MBIDs from
+paginated ListenBrainz sitewide charts and expands popular artists through token-free direct-artist
+LB Radio results. When a ListenBrainz token is configured, `top-recordings-for-artist` is tried
+before the public fallback; similar-artist LB Radio remains an explicitly requested diversity
+source. Discovery counts are discarded. The importer then enriches exact
+recording and artist identities through a resumable MusicBrainz SQLite cache, confidently matches
+Apple tracks, validates previews with bounded concurrency, and performs idempotent upserts
+deduplicated by both MusicBrainz recording ID and Apple track ID. It never merges recordings by
+fuzzy title.
+
+Apple matching prefers the least-censored identity-equivalent result in this order: `explicit`,
+unrated/`notExplicit`, then `cleaned`. When ordinary search exposes only a clean track, the importer
+inspects Apple Music's structured Other Versions links and accepts an explicit alternate only when
+title, credited artist, and duration remain an exact-compatible match. Run
+`just backfill-explicit-versions` from `backend/` to resumably refresh the entire catalog; completed
+checks are retained for 30 days and validated replacements update the Apple link and preview
+without changing Spotify counts.
+
+ListenBrainz currently requires a user token for `top-recordings-for-artist` traffic. The token is
+optional: when absent, the importer expands the same public popular-artist seeds through LB Radio
+with similar-artist expansion disabled. Requests send `LISTENBRAINZ_TOKEN`, when configured, only to
+`api.listenbrainz.org`. ListenBrainz is used only to discover candidate recording identities; its
+counts never enter the songs table or popularity score. Small resumptions bound enrichment to the
+remaining gap and skip fresh negative Apple matches instead of repeatedly processing rejects.
+
+Spotify web stream counts are the catalog's single popularity source. The idempotent Spotify
+backfill reuses existing exact relationships and searches by cached MusicBrainz ISRC. Retry passes
+first inspect exact MusicBrainz URL relationships, then use a public metadata catalog only to
+resolve a Spotify URL by exact ISRC or exact title + credited artist + near-identical duration.
+The fallback catalog's popularity is never read or stored. The backfill reads the lifetime count
+from Spotify's browser-hydrated `getTrack` response, stores the count and
+retrieval timestamp, and assigns a tie-aware 0–100 percentile across every enabled song with a
+count. Missing values remain unavailable rather than becoming zero. Reruns skip fresh complete
+rows, retry failures, and safely include songs added by later 25,000- or 100,000-song population
+runs.
 
 Artist-origin countries come only from the explicit `country` field on every credited MusicBrainz
 artist. Songs may have multiple origins through normalized `countries` and `song_countries` tables;
 missing country metadata remains missing. Run `just backfill-countries` from `backend/` to resumably
 attach countries to an existing catalog without changing songs or popularity rankings.
 
+Genre classification treats Apple's structured primary genre as the baseline and admits at most
+two supplementary MusicBrainz community-tag genres. Supplementary tags are processed individually,
+must have positive votes with meaningful absolute and relative support, and use exact curated
+mappings instead of substring matches. Stored genre evidence retains rank, source, and score. Run
+`just audit-genres` to write a dry-run report under the ignored dataset cache, then run
+`just backfill-genres` to rebuild the local catalog from existing Apple and MusicBrainz caches.
+
+Run `just spotify-streams-browser` from `backend/` after extending the catalog. It never replays
+captured tokens or retains browser headers, cookies, and response bodies. This is an unofficial
+Spotify web workflow, so search or hydration changes become explicit retryable failures rather
+than silently assigning zero. Every enabled song is expected to have Apple Music and Spotify
+destinations before release; both are shown as listening actions on the reveal screen.
+
 Use `just populate --help` for custom totals and ranges. `just snapshot-catalog <path>` records the
 current identities, while `just verify-catalog --target-total <count> --preserve-snapshot <path>`
 checks exact totals, preservation, unique IDs, previews, and the unmodified year distribution. The
-`populate-25000` recipe resumes toward the full catalog. No API credentials are required;
-MusicBrainz remains at one request per second and Apple remains below 20 requests per minute.
+`populate-25000` recipe resumes toward the full catalog. No token is required for the default
+discovery path. MusicBrainz remains at one request per second and Apple remains below 20 requests
+per minute.
 
 ## Frontend
 
@@ -128,5 +169,41 @@ just test
 ## Catalog contract
 
 The importer inserts real, validated rows only; `preview_url` is required and fake Apple preview URLs are never used. Runtime gameplay reads stored preview URLs and never calls Apple, ListenBrainz, or MusicBrainz. The local database and API response caches are ignored because they are reproducible development artifacts.
+
+## Incremental catalog operations
+
+The offline catalog pipeline is split into append-only operations:
+
+```bash
+just cache-baseline
+just cleanup-caches                 # dry run
+just compact-caches
+just cleanup-caches --apply
+just discover-10000                 # writes an inspectable ignored manifest
+just populate-next-1000             # one resumable checkpoint only
+just refresh-catalog
+just verify-pipeline --target-total 10000
+just export-delta
+just evaluate-catalog
+```
+
+Discovery stores ranked identities, source evidence, artist-representation penalties, and the
+reason each recording was included before MusicBrainz or Apple enrichment. Population consumes
+that manifest and skips every known MusicBrainz and Apple identity; it never rewrites existing
+songs merely because the target grows. Refresh changes mutable Spotify count fields separately.
+Snapshots hash all application-facing baseline song fields except mutable popularity data, so
+verification detects unintended changes to the original catalog.
+
+Provider caches and telemetry remain local. `export-delta` contains only new songs, required
+dimension rows, and relationship rows for D1; it explicitly excludes raw provider responses,
+candidate manifests, checkpoints, and metrics. `cleanup-caches` is evidence-gated and defaults to
+a dry run. Apple JSON is removable only after every track and artist-search key exists in the
+compact SQLite cache.
+
+The 10,000-song manifest targets 5,000 popular artists and 15 recordings per artist across several
+ListenBrainz windows and token-free direct-artist LB Radio expansion. A configured
+`LISTENBRAINZ_TOKEN` enables the authenticated per-artist chart as a preferred source, but is not
+required. An insufficient manifest cannot be populated; increase the candidate or per-artist
+limits and rerun `just discover-10000` before enrichment.
 
 The schema and query style are SQLite/D1-compatible, frontend requests are relative, and Astro builds static assets. This keeps the code structurally ready for a later Cloudflare adaptation, but this repository contains no Cloudflare deployment configuration, infrastructure, secrets, domains, CI/CD, or deployment instructions.

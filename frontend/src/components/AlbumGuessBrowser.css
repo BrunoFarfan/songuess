@@ -1,0 +1,484 @@
+.album-guess-browser {
+  --album-size: clamp(8.5rem, 32vw, 10.8rem);
+  position: relative;
+  width: 100%;
+  margin-top: clamp(1.25rem, 4vw, 1.8rem);
+  padding: clamp(1.25rem, 3vw, 1.55rem) 0 0.85rem;
+  overflow: clip;
+  background:
+    radial-gradient(circle at 50% 61%, rgba(255, 101, 71, 0.1), transparent 10rem),
+    linear-gradient(180deg, rgba(244, 239, 229, 0.025), transparent 44%);
+  color: var(--ink, #f4efe5);
+  isolation: isolate;
+}
+
+.album-guess-loading-overlay {
+  position: absolute;
+  z-index: 150;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid rgba(244, 239, 229, 0.22);
+  background: rgba(9, 10, 9, 0.9);
+  color: var(--muted, #99958c);
+  font-size: 0.72rem;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.album-guess-copy {
+  position: relative;
+  z-index: 20;
+  display: grid;
+  min-height: 5rem;
+  margin-top: 0.72rem;
+  padding-inline: clamp(3.25rem, 14vw, 5.2rem);
+  text-align: center;
+}
+
+.album-guess-copy strong {
+  display: block;
+  overflow: hidden;
+  font-family: "Fraunces Variable", serif;
+  font-size: clamp(1.18rem, 5vw, 1.55rem);
+  font-weight: 590;
+  line-height: 1.05;
+  color: var(--accent, #ff6547);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-guess-copy small {
+  display: block;
+  margin-top: 0.28rem;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--accent, #ff6547) 72%, var(--ink, #f4efe5));
+  font-size: 0.75rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-guess-copy .album-guess-release {
+  margin-top: 0.16rem;
+  color: color-mix(in srgb, var(--accent, #ff6547) 46%, var(--muted, #99958c));
+}
+
+.album-guess-copy .album-guess-popularity {
+  --popularity-color: color-mix(in srgb, var(--mint, #8cc9b3) 76%, var(--ink, #f4efe5));
+  justify-self: center;
+  margin-top: 0.5rem;
+}
+
+.album-guess-deck {
+  position: relative;
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem;
+  align-items: center;
+  min-width: 0;
+  margin-top: 0.55rem;
+}
+
+.album-guess-stage {
+  position: relative;
+  min-width: 0;
+  height: calc(var(--album-size) + 2.4rem);
+  overflow: visible;
+  perspective: 72rem;
+  perspective-origin: 50% 42%;
+  transform-style: preserve-3d;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.album-guess-stage::before,
+.album-guess-stage::after {
+  position: absolute;
+  z-index: 0;
+  right: 3%;
+  bottom: 0.6rem;
+  left: 3%;
+  height: 0.72rem;
+  content: "";
+  pointer-events: none;
+}
+
+.album-guess-stage::before {
+  border-top: 1px solid rgba(244, 239, 229, 0.2);
+  background: linear-gradient(90deg, #090a09, #292a25 42%, #0b0c0b);
+  box-shadow: 0 0.5rem 0.9rem rgba(0, 0, 0, 0.62);
+}
+
+.album-guess-stage::after {
+  bottom: -0.03rem;
+  height: 1.05rem;
+  background: linear-gradient(180deg, rgba(244, 239, 229, 0.1), #090a09 34%, #030403);
+  clip-path: polygon(2% 0, 100% 0, 95% 100%, 0 100%);
+  transform: rotateX(67deg);
+  transform-origin: top;
+}
+
+.album-guess-item {
+  position: absolute;
+  top: 0.5rem;
+  left: 50%;
+  width: var(--album-size);
+  height: var(--album-size);
+  opacity: 1;
+  filter: saturate(0.92) brightness(0.88) contrast(1.04);
+  transform: translate3d(
+      calc(-50% + var(--album-shelf-mobile-x) + var(--album-drag, 0px)),
+      var(--album-shelf-y),
+      var(--album-shelf-z)
+    )
+    rotateY(var(--album-shelf-mobile-angle)) scale(var(--album-shelf-scale));
+  transform-origin: 50% 88%;
+  transform-style: preserve-3d;
+  transition:
+    transform 380ms cubic-bezier(0.18, 0.88, 0.22, 1),
+    opacity 180ms ease,
+    filter 220ms ease;
+  pointer-events: auto;
+}
+
+.album-guess-item.is-active {
+  opacity: 1;
+  filter: none;
+  transform: translate3d(calc(-50% + var(--album-drag-active, 0px)), -1.25rem, 6rem)
+    rotateY(var(--album-drag-rotation, 0deg)) scale(1.12);
+}
+
+.album-guess-browser.is-dragging .album-guess-item {
+  transition-duration: 90ms, 90ms, 90ms;
+}
+
+.album-guess-deal {
+  width: 100%;
+  height: 100%;
+  animation: album-guess-deal 240ms ease-out both;
+  animation-delay: calc(var(--album-order) * 18ms);
+}
+
+.album-guess-cover {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(244, 239, 229, 0.28);
+  border-radius: 0.16rem;
+  background: #131512;
+  box-shadow:
+    0.4rem 0.55rem 0 rgba(0, 0, 0, 0.48),
+    0 1.2rem 2.2rem rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transform: translateY(0);
+  backface-visibility: hidden;
+  transition:
+    transform 150ms ease,
+    box-shadow 150ms ease,
+    border-color 150ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: pan-y;
+}
+
+.album-guess-cover::after {
+  display: none;
+}
+
+.album-guess-cover img,
+.album-guess-placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.album-guess-cover img {
+  object-fit: cover;
+}
+
+.album-guess-item:not(.is-active) .album-guess-cover img,
+.album-guess-item:not(.is-active) .album-guess-placeholder {
+  filter: saturate(0.94) contrast(1.08) brightness(0.9);
+}
+
+.album-guess-item.is-active .album-guess-cover {
+  border-color: var(--accent, #ff6547);
+  box-shadow:
+    0.48rem 0.68rem 0 color-mix(in srgb, var(--accent, #ff6547) 24%, #080808),
+    0 1.35rem 2.8rem rgba(0, 0, 0, 0.48);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .album-guess-item:not(.is-active):hover {
+    filter: saturate(0.98) brightness(0.88);
+  }
+
+  .album-guess-item:not(.is-active) .album-guess-cover:hover {
+    border-color: var(--mint, #8cc9b3);
+    box-shadow:
+      0.45rem 0.82rem 0 rgba(0, 0, 0, 0.44),
+      0 1.7rem 3rem rgba(0, 0, 0, 0.46);
+  }
+}
+
+.album-guess-cover:active {
+  transform: translate(0.26rem, 0.32rem);
+  box-shadow: 0.12rem 0.15rem 0 rgba(0, 0, 0, 0.48);
+  transition-duration: 70ms;
+}
+
+.album-guess-cover:focus-visible {
+  z-index: 2;
+  outline: 3px solid var(--mint, #8cc9b3);
+  outline-offset: 4px;
+}
+
+.album-guess-sleeve-glint {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    122deg,
+    rgba(255, 255, 255, 0.16),
+    transparent 26% 76%,
+    rgba(0, 0, 0, 0.18)
+  );
+  pointer-events: none;
+  mix-blend-mode: soft-light;
+}
+
+.album-guess-spine-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.42rem;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.26), rgba(244, 239, 229, 0.16) 48%, rgba(0, 0, 0, 0.64)),
+    linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.52));
+  color: rgba(244, 239, 229, 0.88);
+  opacity: 1;
+  writing-mode: vertical-rl;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+
+.album-guess-spine-label b,
+.album-guess-spine-label i {
+  max-height: 100%;
+  overflow: hidden;
+  font-size: 0.58rem;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-guess-spine-label b {
+  font-weight: 800;
+}
+
+.album-guess-spine-label i {
+  color: rgba(244, 239, 229, 0.62);
+  font-style: normal;
+}
+
+.album-guess-item.is-active .album-guess-spine-label {
+  opacity: 0;
+}
+
+.album-guess-placeholder {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    repeating-radial-gradient(
+      circle at center,
+      transparent 0 0.62rem,
+      rgba(244, 239, 229, 0.09) 0.68rem 0.74rem
+    ),
+    radial-gradient(circle, var(--accent, #ff6547) 0 8%, #090a09 8.5% 54%, #171916 55%);
+}
+
+.album-guess-placeholder i {
+  position: absolute;
+  width: 28%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--accent, #ff6547);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28);
+}
+
+.album-guess-placeholder b {
+  position: relative;
+  z-index: 1;
+  color: #090a09;
+  font-size: clamp(1.15rem, 5vw, 1.55rem);
+}
+
+.album-guess-arrow {
+  position: relative;
+  z-index: 100;
+  display: grid;
+  width: 2.5rem;
+  aspect-ratio: 1;
+  padding: 0;
+  place-items: center;
+  border: 1px solid rgba(244, 239, 229, 0.32);
+  border-radius: 50%;
+  background: #161714;
+  color: var(--ink, #f4efe5);
+  box-shadow: 0.2rem 0.28rem 0 #050605;
+  cursor: pointer;
+  pointer-events: auto;
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    border-color 120ms ease;
+}
+
+.album-guess-arrow svg {
+  width: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.album-guess-arrow:active {
+  transform: translate(0.16rem, 0.2rem);
+  box-shadow: 0.04rem 0.06rem 0 #050605;
+}
+
+.album-guess-arrow:focus-visible {
+  outline: 3px solid var(--mint, #8cc9b3);
+  outline-offset: 3px;
+}
+
+.album-guess-browser.is-loading {
+  display: flex;
+  min-height: calc(clamp(8.5rem, 32vw, 10.8rem) + 7.5rem);
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: var(--muted, #99958c);
+  font-size: 0.72rem;
+}
+
+.album-guess-loading-disc {
+  width: 2.2rem;
+  aspect-ratio: 1;
+  border: 0.22rem solid #090a09;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent, #ff6547) 0 14%, #090a09 15% 100%);
+  box-shadow: 0 0 0 1px rgba(244, 239, 229, 0.2);
+  animation: album-guess-spin 900ms linear infinite;
+}
+
+.album-guess-empty {
+  display: grid;
+  min-height: calc(clamp(8.5rem, 32vw, 10.8rem) + 7.5rem);
+  margin: 0;
+  padding: 1rem 0;
+  place-items: center;
+  color: var(--muted, #99958c);
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+@keyframes album-guess-deal {
+  from {
+    opacity: 0.72;
+    transform: translateY(0.3rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes album-guess-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (min-width: 421px) {
+  .album-guess-item:not(.is-active) {
+    transform: translate3d(
+        calc(-50% + var(--album-shelf-x) + var(--album-drag, 0px)),
+        var(--album-shelf-y),
+        var(--album-shelf-z)
+      )
+      rotateY(var(--album-shelf-angle)) scale(var(--album-shelf-scale));
+  }
+}
+
+@media (max-width: 420px) {
+  .album-guess-browser {
+    --album-size: clamp(7.3rem, 34vw, 8rem);
+    margin-top: 0.75rem;
+    padding-top: 0.9rem;
+    padding-bottom: 0.35rem;
+  }
+
+  .album-guess-deck {
+    grid-template-columns: 2.4rem minmax(0, 1fr) 2.4rem;
+  }
+
+  .album-guess-arrow {
+    width: 2.15rem;
+  }
+
+  .album-guess-copy {
+    min-height: 3.75rem;
+    margin-top: 0.35rem;
+    padding-inline: 2.8rem;
+  }
+
+  .album-guess-copy .album-guess-popularity {
+    margin-top: 0.25rem;
+  }
+
+  .album-guess-stage {
+    height: calc(var(--album-size) + 1rem);
+    perspective: 54rem;
+  }
+
+  .album-guess-item.is-active {
+    transform: translate3d(calc(-50% + var(--album-drag-active, 0px)), -0.75rem, 4rem)
+      rotateY(var(--album-drag-rotation, 0deg)) scale(1.1);
+  }
+
+  .album-guess-item:not(.is-active) .album-guess-cover {
+    border-color: rgba(244, 239, 229, 0.42);
+    box-shadow:
+      0.12rem 0 0 rgba(255, 101, 71, 0.5),
+      0.28rem 0.45rem 0.75rem rgba(0, 0, 0, 0.58);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .album-guess-item,
+  .album-guess-cover,
+  .album-guess-arrow {
+    transition-duration: 0.01ms;
+  }
+
+  .album-guess-deal {
+    animation: none;
+  }
+
+  .album-guess-loading-disc {
+    animation-duration: 2.4s;
+  }
+}

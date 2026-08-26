@@ -19,7 +19,7 @@ def _insert_song(
     enabled: int = 1,
 ) -> None:
     connection.execute(
-        "INSERT INTO songs (id, title, artist, release_year, popularity_score, listen_count, "
+        "INSERT INTO songs (id, title, artist, release_year, popularity_score, stream_count, "
         "musicbrainz_id, apple_track_id, preview_url, enabled) "
         "VALUES (?, ?, 'Artist', 2000, 50, 100, ?, ?, ?, ?)",
         (song_id, f"Song {song_id}", mbid, apple_id, f"https://audio/{song_id}", enabled),
