@@ -33,6 +33,9 @@ DEFAULT_PREVIEW_TRANSIENT_TTL_SECONDS = 5 * 60
 
 _APPLE_LOCK = threading.Lock()
 _APPLE_LAST_REQUEST = 0.0
+_LISTENBRAINZ_RADIO_LOCK = threading.Lock()
+_LISTENBRAINZ_RADIO_LAST_REQUEST = 0.0
+LISTENBRAINZ_RADIO_REQUEST_INTERVAL_SECONDS = 0.4
 SPOTIFY_TRACK_URL_PATTERN = re.compile(
     r"^https://open\.spotify\.com/track/[A-Za-z0-9]{22}(?:\?.*)?$"
 )
@@ -341,13 +344,16 @@ def fetch_listenbrainz_artist_radio_recordings(
                 "pop_end": 100,
             }
         )
+        cache_path = listenbrainz_radio_cache_path(
+            cache_dir,
+            artist_mbid,
+            recordings_per_artist,
+            similar_artists=0,
+        )
+        if not cache_path.exists():
+            _throttle_listenbrainz_radio()
         payload = cached_json(
-            listenbrainz_radio_cache_path(
-                cache_dir,
-                artist_mbid,
-                recordings_per_artist,
-                similar_artists=0,
-            ),
+            cache_path,
             f"https://api.listenbrainz.org/1/lb-radio/artist/{artist_mbid}?{parameters}",
         )
         recordings = payload.get(artist_mbid, [])
@@ -409,6 +415,20 @@ def fetch_listenbrainz_artist_radio_recordings(
             break
 
     return list(overflow.values())
+
+
+def _throttle_listenbrainz_radio() -> None:
+    global _LISTENBRAINZ_RADIO_LAST_REQUEST
+    with _LISTENBRAINZ_RADIO_LOCK:
+        wait_seconds = max(
+            0.0,
+            _LISTENBRAINZ_RADIO_LAST_REQUEST
+            + LISTENBRAINZ_RADIO_REQUEST_INTERVAL_SECONDS
+            - time.monotonic(),
+        )
+        if wait_seconds:
+            time.sleep(wait_seconds)
+        _LISTENBRAINZ_RADIO_LAST_REQUEST = time.monotonic()
 
 
 def fetch_listenbrainz_artist_top_recordings(
