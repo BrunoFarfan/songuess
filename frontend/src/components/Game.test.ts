@@ -3,10 +3,12 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import AlbumGuessBrowser, {
+  clampAlbumIndex,
   resolveAlbumActiveIndex,
   shouldRequestMoreAlbums,
   swipeLiveTraversalDelta,
   swipeTraversalDelta,
+  visibleAlbumIndexes,
   type AlbumGuessOption,
 } from "./AlbumGuessBrowser";
 import VinylSleeveReveal from "./VinylSleeveReveal";
@@ -273,7 +275,35 @@ describe("revealed song popularity", () => {
 });
 
 describe("mobile album shelf gestures", () => {
-  it("does not paginate when previous navigation wraps from the first loaded record", () => {
+  it("keeps paginated results linear instead of wrapping loaded page edges", () => {
+    expect(clampAlbumIndex(-1, 40)).toBe(0);
+    expect(clampAlbumIndex(40, 40)).toBe(39);
+    expect(visibleAlbumIndexes(0, 40)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(visibleAlbumIndexes(39, 40)).toEqual([34, 35, 36, 37, 38, 39]);
+  });
+
+  it("adds new records to the right without replacing the visible loaded records", () => {
+    expect(visibleAlbumIndexes(37, 40)).toEqual([32, 33, 34, 35, 36, 37, 38, 39]);
+    expect(visibleAlbumIndexes(37, 80)).toEqual([32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42]);
+  });
+
+  it("prefetches before the visible deck reaches the loaded result boundary", () => {
+    expect(
+      shouldRequestMoreAlbums({
+        activeIndex: 28,
+        resultCount: 40,
+        hasMore: true,
+        navigationDirection: "forward",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRequestMoreAlbums({
+        activeIndex: 29,
+        resultCount: 40,
+        hasMore: true,
+        navigationDirection: "forward",
+      }),
+    ).toBe(true);
     expect(
       shouldRequestMoreAlbums({
         activeIndex: 39,
@@ -282,14 +312,6 @@ describe("mobile album shelf gestures", () => {
         navigationDirection: "backward",
       }),
     ).toBe(false);
-    expect(
-      shouldRequestMoreAlbums({
-        activeIndex: 39,
-        resultCount: 40,
-        hasMore: true,
-        navigationDirection: "forward",
-      }),
-    ).toBe(true);
   });
 
   it("ignores taps and tiny drags", () => {

@@ -57,6 +57,7 @@ const SWIPE_STEP_DISTANCE = 64;
 const SWIPE_PROJECTION_MS = 90;
 const MAX_SWIPE_STEPS = 7;
 const SWIPE_AXIS_LOCK_DISTANCE = 8;
+const ALBUMS_EACH_SIDE = Math.floor(VISIBLE_ALBUM_COUNT / 2);
 
 export function swipeTraversalDelta({
   distance,
@@ -104,6 +105,19 @@ type ResultsSnapshot = {
 
 type NavigationDirection = "backward" | "forward" | null;
 
+export function clampAlbumIndex(index: number, resultCount: number): number {
+  return Math.max(0, Math.min(index, Math.max(resultCount - 1, 0)));
+}
+
+export function visibleAlbumIndexes(activeIndex: number, resultCount: number): number[] {
+  if (resultCount <= 0) return [];
+
+  const boundedActiveIndex = clampAlbumIndex(activeIndex, resultCount);
+  const firstIndex = Math.max(0, boundedActiveIndex - ALBUMS_EACH_SIDE);
+  const lastIndex = Math.min(resultCount - 1, boundedActiveIndex + ALBUMS_EACH_SIDE);
+  return Array.from({ length: lastIndex - firstIndex + 1 }, (_, offset) => firstIndex + offset);
+}
+
 export function shouldRequestMoreAlbums({
   activeIndex,
   resultCount,
@@ -119,7 +133,7 @@ export function shouldRequestMoreAlbums({
     hasMore &&
     resultCount > 0 &&
     navigationDirection === "forward" &&
-    activeIndex >= resultCount - 3
+    activeIndex >= resultCount - VISIBLE_ALBUM_COUNT
   );
 }
 
@@ -214,7 +228,7 @@ export default function AlbumGuessBrowser({
     resultsSnapshotRef.current.query !== normalizedQuery;
   const queryChanged = resultsSnapshotRef.current.query !== normalizedQuery;
 
-  let resolvedActiveIndex = Math.min(activeIndex, Math.max(results.length - 1, 0));
+  let resolvedActiveIndex = clampAlbumIndex(activeIndex, results.length);
   if (resultsOrSelectionChanged) {
     const retainedId = activeIdRef.current;
     const previousIds = previousResultIdsRef.current;
@@ -270,21 +284,22 @@ export default function AlbumGuessBrowser({
   }, [boundedActiveIndex, hasMore, onNeedMore, results.length]);
 
   const visibleResults = useMemo(() => {
-    if (results.length === 0) return [];
-    const visibleCount = Math.min(VISIBLE_ALBUM_COUNT, results.length);
-    const albumsBeforeActive = Math.floor((visibleCount - 1) / 2);
-
-    return Array.from({ length: visibleCount }, (_, position) => {
-      const offset = position - albumsBeforeActive;
-      const index = (boundedActiveIndex + offset + results.length) % results.length;
-      return { result: results[index], index, offset, position };
-    });
+    return visibleAlbumIndexes(boundedActiveIndex, results.length).map((index) => ({
+      result: results[index],
+      index,
+      offset: index - boundedActiveIndex,
+      position: index - boundedActiveIndex + ALBUMS_EACH_SIDE,
+    }));
   }, [boundedActiveIndex, resultSignature, results]);
 
   function moveTo(index: number, focus = false, navigationDirection: NavigationDirection = null) {
     if (results.length === 0) return;
     navigationDirectionRef.current = navigationDirection;
-    const nextIndex = (index + results.length) % results.length;
+    if (navigationDirection === "forward" && index >= results.length && hasMore) {
+      void onNeedMore?.();
+      return;
+    }
+    const nextIndex = clampAlbumIndex(index, results.length);
     setActiveIndex(nextIndex);
     if (focus) {
       window.requestAnimationFrame(() => cardRefs.current.get(results[nextIndex].id)?.focus());
@@ -458,6 +473,7 @@ export default function AlbumGuessBrowser({
           className="album-guess-arrow is-previous"
           type="button"
           aria-label="Previous song"
+          disabled={boundedActiveIndex === 0}
           onClick={() => moveTo(boundedActiveIndex - 1, true, "backward")}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -549,6 +565,7 @@ export default function AlbumGuessBrowser({
           className="album-guess-arrow is-next"
           type="button"
           aria-label="Next song"
+          disabled={boundedActiveIndex === results.length - 1 && !hasMore}
           onClick={() => moveTo(boundedActiveIndex + 1, true, "forward")}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">

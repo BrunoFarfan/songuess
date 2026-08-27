@@ -3,11 +3,9 @@
   position: relative;
   width: 100%;
   margin-top: clamp(1.25rem, 4vw, 1.8rem);
-  padding: clamp(1.25rem, 3vw, 1.55rem) 0 0.85rem;
+  padding: clamp(2.5rem, 6vw, 3.25rem) 0 1.25rem;
   overflow: clip;
-  background:
-    radial-gradient(circle at 50% 61%, rgba(255, 101, 71, 0.1), transparent 10rem),
-    linear-gradient(180deg, rgba(244, 239, 229, 0.025), transparent 44%);
+  background: transparent;
   color: var(--ink, #f4efe5);
   isolation: isolate;
 }
@@ -362,6 +360,12 @@
 .album-guess-arrow:focus-visible {
   outline: 3px solid var(--mint, #8cc9b3);
   outline-offset: 3px;
+}
+
+.album-guess-arrow:disabled {
+  cursor: default;
+  opacity: 0.28;
+  box-shadow: none;
 }
 
 .album-guess-browser.is-loading {
