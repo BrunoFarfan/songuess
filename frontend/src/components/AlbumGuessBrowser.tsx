@@ -20,6 +20,7 @@ export type AlbumGuessOption = {
   album: string | null;
   release_year: number;
   popularity_score: number | null;
+  searchIndex?: number;
 };
 
 export type AlbumGuessBrowserProps = {
@@ -31,8 +32,9 @@ export type AlbumGuessBrowserProps = {
   isSearching?: boolean;
   className?: string;
   ariaLabel?: string;
-  hasMore?: boolean;
-  onNeedMore?: () => void | Promise<void>;
+  totalCount?: number;
+  excludedIndexes?: number[];
+  onNeedIndex?: (index: number) => void | Promise<void>;
 };
 
 type AlbumItemStyle = CSSProperties & {
@@ -92,93 +94,53 @@ type DragGesture = {
   startTime: number;
   latestX: number;
   latestY: number;
-  startIndex: number;
   appliedDelta: number;
   axis: "horizontal" | "vertical" | null;
 };
 
-type ResultsSnapshot = {
-  resultSignature: string;
-  selectedId: number | null;
-  query: string;
-};
-
-type NavigationDirection = "backward" | "forward" | null;
-
-export function clampAlbumIndex(index: number, resultCount: number): number {
-  return Math.max(0, Math.min(index, Math.max(resultCount - 1, 0)));
+export function wrapAlbumIndex(index: number, resultCount: number): number {
+  if (resultCount <= 0) return 0;
+  return ((index % resultCount) + resultCount) % resultCount;
 }
 
-export function visibleAlbumIndexes(activeIndex: number, resultCount: number): number[] {
-  if (resultCount <= 0) return [];
-
-  const boundedActiveIndex = clampAlbumIndex(activeIndex, resultCount);
-  const firstIndex = Math.max(0, boundedActiveIndex - ALBUMS_EACH_SIDE);
-  const lastIndex = Math.min(resultCount - 1, boundedActiveIndex + ALBUMS_EACH_SIDE);
-  return Array.from({ length: lastIndex - firstIndex + 1 }, (_, offset) => firstIndex + offset);
+function advanceAlbumIndex(
+  activeIndex: number,
+  delta: number,
+  resultCount: number,
+  excludedIndexes: ReadonlySet<number>,
+): number {
+  if (resultCount <= 0) return 0;
+  if (delta === 0) return wrapAlbumIndex(activeIndex, resultCount);
+  const direction = Math.sign(delta);
+  let nextIndex = wrapAlbumIndex(activeIndex, resultCount);
+  let remaining = Math.abs(delta);
+  let inspected = 0;
+  while (remaining > 0 && inspected < resultCount * Math.max(1, Math.abs(delta))) {
+    nextIndex = wrapAlbumIndex(nextIndex + direction, resultCount);
+    inspected += 1;
+    if (!excludedIndexes.has(nextIndex)) remaining -= 1;
+  }
+  return nextIndex;
 }
 
-export function shouldRequestMoreAlbums({
-  activeIndex,
-  resultCount,
-  hasMore,
-  navigationDirection,
-}: {
-  activeIndex: number;
-  resultCount: number;
-  hasMore: boolean;
-  navigationDirection: NavigationDirection;
-}): boolean {
-  return (
-    hasMore &&
-    resultCount > 0 &&
-    navigationDirection === "forward" &&
-    activeIndex >= resultCount - VISIBLE_ALBUM_COUNT
+export function visibleAlbumIndexes(
+  activeIndex: number,
+  resultCount: number,
+  excludedIndexes: ReadonlySet<number> = new Set(),
+): number[] {
+  const availableCount = Math.max(0, resultCount - excludedIndexes.size);
+  if (availableCount === 0) return [];
+  const visibleCount = Math.min(VISIBLE_ALBUM_COUNT, availableCount);
+  const leftCount = Math.min(ALBUMS_EACH_SIDE, Math.floor((visibleCount - 1) / 2));
+  const firstIndex = advanceAlbumIndex(
+    wrapAlbumIndex(activeIndex, resultCount),
+    -leftCount,
+    resultCount,
+    excludedIndexes,
   );
-}
-
-function nextSurvivingResultIndex(
-  previousIds: number[],
-  removedIndex: number,
-  results: AlbumGuessOption[],
-) {
-  const resultIndexes = new Map(results.map(({ id }, index) => [id, index]));
-
-  for (let distance = 1; distance <= previousIds.length; distance += 1) {
-    const nextId = previousIds[(removedIndex + distance) % previousIds.length];
-    const nextIndex = resultIndexes.get(nextId);
-    if (nextIndex !== undefined) return nextIndex;
-  }
-
-  return 0;
-}
-
-export function resolveAlbumActiveIndex({
-  results,
-  selectedId,
-  retainedId,
-  previousIds,
-  activeIndex,
-  queryChanged,
-}: {
-  results: AlbumGuessOption[];
-  selectedId: number | null;
-  retainedId: number | null;
-  previousIds: number[];
-  activeIndex: number;
-  queryChanged: boolean;
-}): number {
-  const selectedIndex = results.findIndex(({ id }) => id === selectedId);
-  if (queryChanged) return selectedIndex >= 0 ? selectedIndex : 0;
-
-  const retainedIndex = results.findIndex(({ id }) => id === retainedId);
-  const removedActiveIndex = retainedId === null ? -1 : previousIds.indexOf(retainedId);
-  if (selectedIndex >= 0) return selectedIndex;
-  if (retainedIndex >= 0) return retainedIndex;
-  if (removedActiveIndex >= 0 && results.length > 0) {
-    return nextSurvivingResultIndex(previousIds, removedActiveIndex, results);
-  }
-  return Math.min(activeIndex, Math.max(results.length - 1, 0));
+  return Array.from({ length: visibleCount }, (_, offset) =>
+    advanceAlbumIndex(firstIndex, offset, resultCount, excludedIndexes),
+  );
 }
 
 /**
@@ -195,130 +157,132 @@ export default function AlbumGuessBrowser({
   isSearching = false,
   className = "",
   ariaLabel = "Song search results",
-  hasMore = false,
-  onNeedMore,
+  totalCount = results.length,
+  excludedIndexes = [],
+  onNeedIndex,
 }: AlbumGuessBrowserProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const optionIdPrefix = useId();
   const cardRefs = useRef(new Map<number, HTMLButtonElement>());
-  const activeIdRef = useRef<number | null>(null);
-  const previousResultIdsRef = useRef<number[]>([]);
-  const resultsSnapshotRef = useRef<ResultsSnapshot>({
-    resultSignature: "",
-    selectedId: null,
-    query: "",
-  });
-  const requestedLengthRef = useRef(-1);
-  const navigationDirectionRef = useRef<NavigationDirection>(null);
+  const previousQueryRef = useRef("");
+  const pendingActiveIndexRef = useRef<number | null>(null);
   const dragGestureRef = useRef<DragGesture | null>(null);
   const suppressClickRef = useRef(false);
   const onActiveChangeRef = useRef(onActiveChange);
-  const resultSignature = useMemo(() => results.map(({ id }) => id).join(":"), [results]);
+  const resultByIndex = useMemo(
+    () => new Map(results.map((result, index) => [result.searchIndex ?? index, result])),
+    [results],
+  );
+  const resultSignature = useMemo(
+    () => results.map((result, index) => `${result.searchIndex ?? index}:${result.id}`).join(":"),
+    [results],
+  );
+  const excludedIndexSet = useMemo(() => new Set(excludedIndexes), [excludedIndexes]);
   const normalizedQuery = query.trim();
 
   useEffect(() => {
     onActiveChangeRef.current = onActiveChange;
   }, [onActiveChange]);
 
-  const resultsOrSelectionChanged =
-    resultsSnapshotRef.current.resultSignature !== resultSignature ||
-    resultsSnapshotRef.current.selectedId !== selectedId ||
-    resultsSnapshotRef.current.query !== normalizedQuery;
-  const queryChanged = resultsSnapshotRef.current.query !== normalizedQuery;
-
-  let resolvedActiveIndex = clampAlbumIndex(activeIndex, results.length);
-  if (resultsOrSelectionChanged) {
-    const retainedId = activeIdRef.current;
-    const previousIds = previousResultIdsRef.current;
-    resolvedActiveIndex = resolveAlbumActiveIndex({
-      results,
-      selectedId,
-      retainedId,
-      previousIds,
-      activeIndex,
-      queryChanged,
-    });
-  }
-
   useEffect(() => {
-    if (
-      resultsSnapshotRef.current.resultSignature === resultSignature &&
-      resultsSnapshotRef.current.selectedId === selectedId &&
-      resultsSnapshotRef.current.query === normalizedQuery
-    ) {
+    const selectedResult = results.find(({ id }) => id === selectedId);
+    const selectedIndex = selectedResult?.searchIndex;
+    if (previousQueryRef.current !== normalizedQuery) {
+      previousQueryRef.current = normalizedQuery;
+      pendingActiveIndexRef.current = null;
+      setActiveIndex(selectedIndex ?? results[0]?.searchIndex ?? 0);
       return;
     }
+    const pendingActiveIndex = pendingActiveIndexRef.current;
+    if (pendingActiveIndex !== null && resultByIndex.has(pendingActiveIndex)) {
+      pendingActiveIndexRef.current = null;
+      setActiveIndex(pendingActiveIndex);
+      return;
+    }
+    if (excludedIndexSet.has(activeIndex)) {
+      setActiveIndex(advanceAlbumIndex(activeIndex, 1, totalCount, excludedIndexSet));
+    }
+  }, [
+    activeIndex,
+    excludedIndexSet,
+    normalizedQuery,
+    resultByIndex,
+    results,
+    selectedId,
+    totalCount,
+  ]);
 
-    setActiveIndex(resolvedActiveIndex);
-    previousResultIdsRef.current = results.map(({ id }) => id);
-    resultsSnapshotRef.current = { resultSignature, selectedId, query: normalizedQuery };
-    requestedLengthRef.current = -1;
-  }, [normalizedQuery, resolvedActiveIndex, resultSignature, results, selectedId]);
-
-  const boundedActiveIndex = resolvedActiveIndex;
-  const activeResult = results[boundedActiveIndex];
+  const boundedActiveIndex = wrapAlbumIndex(activeIndex, totalCount);
+  const activeResult = resultByIndex.get(boundedActiveIndex);
 
   useEffect(() => {
-    activeIdRef.current = activeResult?.id ?? null;
     if (activeResult) onActiveChangeRef.current?.(activeResult);
   }, [activeResult]);
 
   useEffect(() => {
-    if (
-      !onNeedMore ||
-      !shouldRequestMoreAlbums({
-        activeIndex: boundedActiveIndex,
-        resultCount: results.length,
-        hasMore,
-        navigationDirection: navigationDirectionRef.current,
-      }) ||
-      requestedLengthRef.current === results.length
-    ) {
-      return;
+    if (!onNeedIndex || totalCount <= 0) return;
+    for (let offset = -VISIBLE_ALBUM_COUNT; offset <= VISIBLE_ALBUM_COUNT; offset += 1) {
+      const index = advanceAlbumIndex(boundedActiveIndex, offset, totalCount, excludedIndexSet);
+      if (!resultByIndex.has(index)) void onNeedIndex(index);
     }
-
-    requestedLengthRef.current = results.length;
-    void onNeedMore();
-  }, [boundedActiveIndex, hasMore, onNeedMore, results.length]);
+  }, [boundedActiveIndex, excludedIndexSet, onNeedIndex, resultByIndex, totalCount]);
 
   const visibleResults = useMemo(() => {
-    return visibleAlbumIndexes(boundedActiveIndex, results.length).map((index) => ({
-      result: results[index],
-      index,
-      offset: index - boundedActiveIndex,
-      position: index - boundedActiveIndex + ALBUMS_EACH_SIDE,
-    }));
-  }, [boundedActiveIndex, resultSignature, results]);
+    return visibleAlbumIndexes(boundedActiveIndex, totalCount, excludedIndexSet).map(
+      (index, position) => ({
+        result: resultByIndex.get(index),
+        index,
+        offset:
+          position -
+          Math.floor((Math.min(VISIBLE_ALBUM_COUNT, totalCount - excludedIndexSet.size) - 1) / 2),
+        position,
+      }),
+    );
+  }, [boundedActiveIndex, excludedIndexSet, resultByIndex, resultSignature, totalCount]);
 
-  function moveTo(index: number, focus = false, navigationDirection: NavigationDirection = null) {
-    if (results.length === 0) return;
-    navigationDirectionRef.current = navigationDirection;
-    if (navigationDirection === "forward" && index >= results.length && hasMore) {
-      void onNeedMore?.();
+  function moveBy(delta: number, focus = false) {
+    if (totalCount <= excludedIndexSet.size) return;
+    const startingIndex = pendingActiveIndexRef.current ?? boundedActiveIndex;
+    const nextIndex = advanceAlbumIndex(startingIndex, delta, totalCount, excludedIndexSet);
+    const nextResult = resultByIndex.get(nextIndex);
+    if (!nextResult) {
+      pendingActiveIndexRef.current = nextIndex;
+      void onNeedIndex?.(nextIndex);
       return;
     }
-    const nextIndex = clampAlbumIndex(index, results.length);
+    pendingActiveIndexRef.current = null;
     setActiveIndex(nextIndex);
     if (focus) {
-      window.requestAnimationFrame(() => cardRefs.current.get(results[nextIndex].id)?.focus());
+      window.requestAnimationFrame(() => cardRefs.current.get(nextIndex)?.focus());
     }
+  }
+
+  function moveToAbsolute(index: number, focus = false) {
+    const nextIndex = wrapAlbumIndex(index, totalCount);
+    const nextResult = resultByIndex.get(nextIndex);
+    if (!nextResult) {
+      void onNeedIndex?.(nextIndex);
+      return;
+    }
+    setActiveIndex(nextIndex);
+    if (focus) window.requestAnimationFrame(() => cardRefs.current.get(nextIndex)?.focus());
   }
 
   function handleKeyboard(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "ArrowLeft") {
       event.preventDefault();
-      moveTo(boundedActiveIndex - 1, true, "backward");
+      moveBy(-1, true);
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
-      moveTo(boundedActiveIndex + 1, true, "forward");
+      moveBy(1, true);
     } else if (event.key === "Home") {
       event.preventDefault();
-      moveTo(0, true, "backward");
+      moveToAbsolute(0, true);
     } else if (event.key === "End") {
       event.preventDefault();
-      moveTo(results.length - 1, true, "forward");
+      moveToAbsolute(totalCount - 1, true);
     }
   }
 
@@ -337,16 +301,12 @@ export default function AlbumGuessBrowser({
       if (isTypingTarget) return;
 
       event.preventDefault();
-      moveTo(
-        boundedActiveIndex + (event.key === "ArrowLeft" ? -1 : 1),
-        false,
-        event.key === "ArrowLeft" ? "backward" : "forward",
-      );
+      moveBy(event.key === "ArrowLeft" ? -1 : 1);
     }
 
     window.addEventListener("keydown", handleWindowNavigation);
     return () => window.removeEventListener("keydown", handleWindowNavigation);
-  }, [boundedActiveIndex, resultSignature, results]);
+  }, [boundedActiveIndex, resultSignature, results, totalCount]);
 
   function beginSwipe(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.pointerType === "mouse") return;
@@ -357,7 +317,6 @@ export default function AlbumGuessBrowser({
       startTime: event.timeStamp,
       latestX: event.clientX,
       latestY: event.clientY,
-      startIndex: boundedActiveIndex,
       appliedDelta: 0,
       axis: null,
     };
@@ -390,8 +349,9 @@ export default function AlbumGuessBrowser({
 
     const liveDelta = swipeLiveTraversalDelta(distance);
     if (liveDelta !== gesture.appliedDelta) {
+      const incrementalDelta = liveDelta - gesture.appliedDelta;
       gesture.appliedDelta = liveDelta;
-      moveTo(gesture.startIndex + liveDelta, false, liveDelta < 0 ? "backward" : "forward");
+      moveBy(incrementalDelta);
     }
     const consumedDistance = -liveDelta * SWIPE_STEP_DISTANCE;
     const remainingDistance = distance - consumedDistance;
@@ -425,11 +385,7 @@ export default function AlbumGuessBrowser({
         ? swipeTraversalDelta({ distance, elapsed })
         : 0;
     if (traversalDelta !== gesture.appliedDelta) {
-      moveTo(
-        gesture.startIndex + traversalDelta,
-        false,
-        traversalDelta < 0 ? "backward" : "forward",
-      );
+      moveBy(traversalDelta - gesture.appliedDelta);
     }
     if (traversalDelta !== 0 || gesture.appliedDelta !== 0) {
       suppressClickRef.current = true;
@@ -473,8 +429,7 @@ export default function AlbumGuessBrowser({
           className="album-guess-arrow is-previous"
           type="button"
           aria-label="Previous song"
-          disabled={boundedActiveIndex === 0}
-          onClick={() => moveTo(boundedActiveIndex - 1, true, "backward")}
+          onClick={() => moveBy(-1, true)}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="m15 5-7 7 7 7" />
@@ -485,7 +440,7 @@ export default function AlbumGuessBrowser({
           className="album-guess-stage"
           role="listbox"
           aria-label={ariaLabel}
-          aria-activedescendant={`${optionIdPrefix}-${activeResult.id}`}
+          aria-activedescendant={activeResult ? `${optionIdPrefix}-${activeResult.id}` : undefined}
           style={{ "--album-drag": `${dragOffset}px` } as CSSProperties}
           onPointerDown={beginSwipe}
           onPointerMove={updateSwipe}
@@ -513,18 +468,38 @@ export default function AlbumGuessBrowser({
               zIndex: VISIBLE_ALBUM_COUNT * 2 - depth * 2 - (side > 0 ? 1 : 0),
             };
 
+            if (!result) {
+              return (
+                <div
+                  className="album-guess-item is-page-placeholder"
+                  key={index}
+                  role="presentation"
+                  style={style}
+                >
+                  <div className="album-guess-deal" role="presentation">
+                    <div className="album-guess-cover" aria-hidden="true">
+                      <span className="album-guess-placeholder">
+                        <i />
+                        <b>♪</b>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <div
                 className={`album-guess-item${index === boundedActiveIndex ? " is-active" : ""}`}
-                key={result.id}
+                key={index}
                 role="presentation"
                 style={style}
               >
                 <div className="album-guess-deal" role="presentation">
                   <button
                     ref={(node) => {
-                      if (node) cardRefs.current.set(result.id, node);
-                      else cardRefs.current.delete(result.id);
+                      if (node) cardRefs.current.set(index, node);
+                      else cardRefs.current.delete(index);
                     }}
                     className="album-guess-cover"
                     id={`${optionIdPrefix}-${result.id}`}
@@ -538,7 +513,7 @@ export default function AlbumGuessBrowser({
                     onClick={() => {
                       if (suppressClickRef.current) return;
                       if (index === boundedActiveIndex) onSelect(result);
-                      else moveTo(index, true, offset < 0 ? "backward" : "forward");
+                      else moveBy(offset, true);
                     }}
                   >
                     {result.artwork_url ? (
@@ -565,8 +540,7 @@ export default function AlbumGuessBrowser({
           className="album-guess-arrow is-next"
           type="button"
           aria-label="Next song"
-          disabled={boundedActiveIndex === results.length - 1 && !hasMore}
-          onClick={() => moveTo(boundedActiveIndex + 1, true, "forward")}
+          onClick={() => moveBy(1, true)}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="m9 5 7 7-7 7" />
@@ -574,18 +548,23 @@ export default function AlbumGuessBrowser({
         </button>
       </div>
 
-      <header className="album-guess-copy" aria-live="polite" aria-atomic="true">
-        <strong>{activeResult.title}</strong>
-        <small className="album-guess-artist">{activeResult.artist}</small>
-        {(activeResult.album || activeResult.release_year) && (
-          <small className="album-guess-release">
-            {activeResult.album}
-            {activeResult.album && activeResult.release_year ? " · " : ""}
-            {activeResult.release_year}
-          </small>
-        )}
-        <PopularityScore score={activeResult.popularity_score} className="album-guess-popularity" />
-      </header>
+      {activeResult && (
+        <header className="album-guess-copy" aria-live="polite" aria-atomic="true">
+          <strong>{activeResult.title}</strong>
+          <small className="album-guess-artist">{activeResult.artist}</small>
+          {(activeResult.album || activeResult.release_year) && (
+            <small className="album-guess-release">
+              {activeResult.album}
+              {activeResult.album && activeResult.release_year ? " · " : ""}
+              {activeResult.release_year}
+            </small>
+          )}
+          <PopularityScore
+            score={activeResult.popularity_score}
+            className="album-guess-popularity"
+          />
+        </header>
+      )}
     </section>
   );
 }

@@ -1,4 +1,11 @@
-import React, { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   addOrUpdateRound,
@@ -18,6 +25,7 @@ import "./VinylControls.css";
 
 const SNIPPET_DURATIONS = [1, 2, 4, 7, 11, 15] as const;
 const CURRENT_YEAR = new Date().getFullYear();
+const SEARCH_PAGE_SIZE = 40;
 
 export function potentialPointsForAttempt(attempt: number): number {
   return Math.max(0, SNIPPET_DURATIONS.length - Math.max(0, attempt));
@@ -88,6 +96,7 @@ type SearchResult = {
   release_year: number;
   artwork_url: string | null;
   popularity_score: number | null;
+  searchIndex?: number;
 };
 
 type SearchResponse = {
@@ -154,8 +163,8 @@ export default function Game() {
   const [selectedGuess, setSelectedGuess] = useState<SearchResult | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingMoreResults, setIsLoadingMoreResults] = useState(false);
-  const [searchHasMore, setSearchHasMore] = useState(false);
-  const [searchNextOffset, setSearchNextOffset] = useState(0);
+  const [searchTotalCount, setSearchTotalCount] = useState(0);
+  const [excludedSearchIndexes, setExcludedSearchIndexes] = useState<number[]>([]);
   const [roundHistory, setRoundHistory] = useState<LocalRoundRecord[]>([]);
   const [openUtilityPanel, setOpenUtilityPanel] = useState<"volume" | "stats" | null>(null);
   const [wrongFeedbackKey, setWrongFeedbackKey] = useState(0);
@@ -171,7 +180,9 @@ export default function Game() {
   const roundHistoryRef = useRef<LocalRoundRecord[]>([]);
   const previousGuessesRef = useRef<SearchResult[]>([]);
   const searchGenerationRef = useRef(0);
-  const searchLoadMoreRef = useRef(false);
+  const loadedSearchPagesRef = useRef(new Set<number>());
+  const pendingSearchPagesRef = useRef(new Set<number>());
+  const searchTotalCountRef = useRef(0);
   const wrongFeedbackTimerRef = useRef<number | null>(null);
   const unlockedDuration = SNIPPET_DURATIONS[attempt];
   const personalStats = useMemo(() => calculatePersonalStats(roundHistory), [roundHistory]);
@@ -346,26 +357,90 @@ export default function Game() {
     return () => window.cancelAnimationFrame(animationFrame);
   }, [isAudioPlaying, phase, unlockedDuration]);
 
+  const loadSearchPage = useCallback(
+    async (
+      offset: number,
+      normalizedQuery: string,
+      generation: number,
+    ): Promise<SearchResponse | null> => {
+      const pageOffset = Math.max(0, Math.floor(offset / SEARCH_PAGE_SIZE) * SEARCH_PAGE_SIZE);
+      if (
+        generation !== searchGenerationRef.current ||
+        loadedSearchPagesRef.current.has(pageOffset) ||
+        pendingSearchPagesRef.current.has(pageOffset)
+      )
+        return null;
+
+      pendingSearchPagesRef.current.add(pageOffset);
+      setIsLoadingMoreResults(true);
+      try {
+        const params = new URLSearchParams({
+          offset: String(pageOffset),
+          limit: String(SEARCH_PAGE_SIZE),
+        });
+        if (normalizedQuery) params.set("q", normalizedQuery);
+        const response = await fetch(`/api/songs/search?${params}`);
+        if (!response.ok) throw new Error("Search failed");
+        const payload = (await response.json()) as SearchResponse;
+        if (generation !== searchGenerationRef.current) return null;
+
+        loadedSearchPagesRef.current.add(pageOffset);
+        searchTotalCountRef.current = payload.total;
+        setSearchTotalCount(payload.total);
+        const guessedIds = new Set(previousGuessesRef.current.map(({ id }) => id));
+        const excludedFromPage = payload.items.flatMap((result, index) =>
+          guessedIds.has(result.id) ? [payload.offset + index] : [],
+        );
+        if (excludedFromPage.length > 0) {
+          setExcludedSearchIndexes((excluded) => [...new Set([...excluded, ...excludedFromPage])]);
+        }
+        setSearchResults((current) => {
+          const indexedResults = new Map(
+            current.map((result, index) => [result.searchIndex ?? index, result]),
+          );
+          payload.items.forEach((result, index) => {
+            const searchIndex = payload.offset + index;
+            if (!guessedIds.has(result.id)) {
+              indexedResults.set(searchIndex, { ...result, searchIndex });
+            }
+          });
+          return [...indexedResults.values()].sort(
+            (left, right) => (left.searchIndex ?? 0) - (right.searchIndex ?? 0),
+          );
+        });
+        return payload;
+      } catch {
+        return null;
+      } finally {
+        pendingSearchPagesRef.current.delete(pageOffset);
+        if (generation === searchGenerationRef.current) setIsLoadingMoreResults(false);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     const generation = ++searchGenerationRef.current;
+    loadedSearchPagesRef.current = new Set();
+    pendingSearchPagesRef.current = new Set();
+    searchTotalCountRef.current = 0;
     if (phase !== "playing") {
       setSearchResults([]);
       setSearchResultsQuery("");
       setIsSearching(false);
       setIsLoadingMoreResults(false);
-      setSearchHasMore(false);
-      setSearchNextOffset(0);
+      setSearchTotalCount(0);
+      setExcludedSearchIndexes([]);
       return;
     }
 
     setIsSearching(true);
-    setSearchHasMore(false);
     const controller = new AbortController();
     const timeout = window.setTimeout(
       async () => {
         const normalizedQuery = query.trim();
         try {
-          const params = new URLSearchParams({ offset: "0", limit: "40" });
+          const params = new URLSearchParams({ offset: "0", limit: String(SEARCH_PAGE_SIZE) });
           if (normalizedQuery) params.set("q", normalizedQuery);
           const response = await fetch(`/api/songs/search?${params}`, {
             signal: controller.signal,
@@ -373,19 +448,32 @@ export default function Game() {
           if (!response.ok) throw new Error("Search failed");
           const payload = (await response.json()) as SearchResponse;
           if (generation !== searchGenerationRef.current) return;
+          loadedSearchPagesRef.current.add(0);
+          searchTotalCountRef.current = payload.total;
           setSearchResultsQuery(normalizedQuery);
+          const excludedIndexes: number[] = [];
           setSearchResults(
-            payload.items.filter(
-              (result) => !previousGuessesRef.current.some((guess) => guess.id === result.id),
-            ),
+            payload.items.flatMap((result, index) => {
+              const searchIndex = payload.offset + index;
+              if (previousGuessesRef.current.some((guess) => guess.id === result.id)) {
+                excludedIndexes.push(searchIndex);
+                return [];
+              }
+              return [{ ...result, searchIndex }];
+            }),
           );
-          setSearchNextOffset(payload.offset + payload.items.length);
-          setSearchHasMore(payload.has_more);
+          setSearchTotalCount(payload.total);
+          setExcludedSearchIndexes(excludedIndexes);
+          if (payload.total > SEARCH_PAGE_SIZE) {
+            const tailOffset =
+              Math.floor((payload.total - 1) / SEARCH_PAGE_SIZE) * SEARCH_PAGE_SIZE;
+            void loadSearchPage(tailOffset, normalizedQuery, generation);
+          }
         } catch (error) {
           if (!(error instanceof DOMException && error.name === "AbortError")) {
             setSearchResultsQuery(normalizedQuery);
             setSearchResults([]);
-            setSearchHasMore(false);
+            setSearchTotalCount(0);
           }
         } finally {
           if (!controller.signal.aborted) setIsSearching(false);
@@ -398,51 +486,19 @@ export default function Game() {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [phase, query]);
+  }, [loadSearchPage, phase, query]);
 
-  async function loadMoreSearchResults() {
-    const normalizedQuery = query.trim();
-    if (
-      phase !== "playing" ||
-      normalizedQuery !== searchResultsQuery ||
-      !searchHasMore ||
-      searchLoadMoreRef.current
-    ) {
-      return;
-    }
-
-    const generation = searchGenerationRef.current;
-    searchLoadMoreRef.current = true;
-    setIsLoadingMoreResults(true);
-    try {
-      const params = new URLSearchParams({
-        offset: String(searchNextOffset),
-        limit: "40",
-      });
-      if (normalizedQuery) params.set("q", normalizedQuery);
-      const response = await fetch(`/api/songs/search?${params}`);
-      if (!response.ok) throw new Error("Search failed");
-      const payload = (await response.json()) as SearchResponse;
-      if (generation !== searchGenerationRef.current) return;
-
-      setSearchResults((current) => {
-        const seen = new Set(current.map(({ id }) => id));
-        const additions = payload.items.filter(
-          (result) =>
-            !seen.has(result.id) &&
-            !previousGuessesRef.current.some((guess) => guess.id === result.id),
-        );
-        return [...current, ...additions];
-      });
-      setSearchNextOffset(payload.offset + payload.items.length);
-      setSearchHasMore(payload.has_more);
-    } catch {
-      // Keep the page retryable: reaching the edge will request it again.
-    } finally {
-      if (generation === searchGenerationRef.current) setIsLoadingMoreResults(false);
-      searchLoadMoreRef.current = false;
-    }
-  }
+  const loadSearchResultAtIndex = useCallback(
+    (index: number) => {
+      const normalizedQuery = query.trim();
+      if (phase !== "playing" || normalizedQuery !== searchResultsQuery) return;
+      const total = searchTotalCountRef.current;
+      if (total <= 0) return;
+      const wrappedIndex = ((index % total) + total) % total;
+      void loadSearchPage(wrappedIndex, normalizedQuery, searchGenerationRef.current);
+    },
+    [loadSearchPage, phase, query, searchResultsQuery],
+  );
 
   const progressPercent = useMemo(() => {
     if (phase === "revealed") return 100;
@@ -474,6 +530,8 @@ export default function Game() {
     setQuery("");
     setSearchResults([]);
     setSearchResultsQuery("");
+    setSearchTotalCount(0);
+    setExcludedSearchIndexes([]);
     setIsRevealArmed(false);
 
     const requestRound = async (excludeIds: number[]) => {
@@ -629,6 +687,8 @@ export default function Game() {
       setQuery("");
       setSearchResults([]);
       setSearchResultsQuery("");
+      setSearchTotalCount(0);
+      setExcludedSearchIndexes([]);
     }
     if (attempt === SNIPPET_DURATIONS.length - 1) {
       void finishRound("failed");
@@ -661,8 +721,12 @@ export default function Game() {
       previousGuessesRef.current = nextGuesses;
       setPreviousGuesses(nextGuesses);
     }
+    const guessedIndex = selectedGuess.searchIndex;
     const { remainingResults, nextGuess } = excludeWrongGuess(searchResults, selectedGuess.id);
     setSearchResults(remainingResults);
+    if (guessedIndex !== undefined) {
+      setExcludedSearchIndexes((current) => [...current, guessedIndex]);
+    }
     setSelectedGuess(nextGuess);
     advanceAttempt({ preserveSearch: true });
   }
@@ -687,6 +751,8 @@ export default function Game() {
     setSelectedGuess(null);
     setSearchResults([]);
     setSearchResultsQuery("");
+    setSearchTotalCount(0);
+    setExcludedSearchIndexes([]);
   }
 
   async function playFullPreview(restart = false) {
@@ -975,8 +1041,6 @@ export default function Game() {
                               // when the latest response arrives, which prevents stale focus from
                               // surviving into the replacement ranking.
                               setIsSearching(true);
-                              setSearchHasMore(false);
-                              setSearchNextOffset(0);
                             }}
                             aria-expanded={searchResults.length > 0}
                             aria-controls="search-results"
@@ -998,8 +1062,9 @@ export default function Game() {
                               results={searchResults}
                               query={searchResultsQuery}
                               isSearching={isSearching || isLoadingMoreResults}
-                              hasMore={searchHasMore}
-                              onNeedMore={loadMoreSearchResults}
+                              totalCount={searchTotalCount}
+                              excludedIndexes={excludedSearchIndexes}
+                              onNeedIndex={loadSearchResultAtIndex}
                               onSelect={selectSearchResult}
                               onActiveChange={selectSearchResult}
                               selectedId={selectedGuess?.id}
