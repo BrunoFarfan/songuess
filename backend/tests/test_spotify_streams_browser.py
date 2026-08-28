@@ -14,12 +14,7 @@ from dataset.spotify_streams_browser import (
 
 def test_playwright_result_parser_ignores_progress_console_lines() -> None:
     assert _parse_playwright_result(
-        "SONGUESS_PROGRESS 100/100\n"
-        "{\n"
-        '  "results": [],\n'
-        '  "failures": [],\n'
-        '  "metrics": {}\n'
-        "}\n"
+        'SONGUESS_PROGRESS 100/100\n{\n  "results": [],\n  "failures": [],\n  "metrics": {}\n}\n'
     ) == {"results": [], "failures": [], "metrics": {}}
 
 

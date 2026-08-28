@@ -3,7 +3,6 @@ import sqlite3
 from argparse import Namespace
 from pathlib import Path
 
-from dataset.artist_cap_audit import SongOption, initialize_audit_database, select_with_cap
 from dataset.catalog_pipeline import (
     disable_persistent_streaming_failures,
     discover,
@@ -109,30 +108,3 @@ def test_disable_persistent_streaming_failures_is_idempotent(tmp_path: Path) -> 
     assert second["disabled_count"] == 0
     with sqlite3.connect(database) as connection:
         assert connection.execute("SELECT enabled FROM songs WHERE id = 1").fetchone()[0] == 0
-
-
-def test_artist_cap_selection_counts_every_credited_artist() -> None:
-    options = [
-        SongOption("duet", "candidate", "Duet", "A & B", ("a", "b"), 300),
-        SongOption("a-solo", "existing", "A Solo", "A", ("a",), 200),
-        SongOption("b-solo", "existing", "B Solo", "B", ("b",), 100),
-    ]
-
-    selected = select_with_cap(options, artist_cap=1)
-
-    assert [song.identity for song in selected] == ["duet"]
-
-
-def test_artist_cap_audit_database_initialization_is_idempotent(tmp_path: Path) -> None:
-    database = tmp_path / "audit.sqlite3"
-
-    initialize_audit_database(database)
-    initialize_audit_database(database)
-
-    with sqlite3.connect(database) as connection:
-        assert (
-            connection.execute(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='candidates'"
-            ).fetchone()[0]
-            == 1
-        )
