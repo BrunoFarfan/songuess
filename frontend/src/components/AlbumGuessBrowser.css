@@ -126,7 +126,7 @@
   opacity: 1;
   filter: saturate(0.92) brightness(0.88) contrast(1.04);
   transform: translate3d(
-      calc(-50% + var(--album-shelf-mobile-x) + var(--album-drag, 0px)),
+      calc(-50% + var(--album-shelf-mobile-x)),
       var(--album-shelf-y),
       var(--album-shelf-z)
     )
@@ -143,8 +143,7 @@
 .album-guess-item.is-active {
   opacity: 1;
   filter: none;
-  transform: translate3d(calc(-50% + var(--album-drag-active, 0px)), -1.25rem, 6rem)
-    rotateY(var(--album-drag-rotation, 0deg)) scale(1.12);
+  transform: translate3d(-50%, -1.25rem, 6rem) rotateY(0deg) scale(1.12);
 }
 
 .album-guess-browser.is-dragging .album-guess-item {
@@ -421,7 +420,7 @@
 @media (min-width: 421px) {
   .album-guess-item:not(.is-active) {
     transform: translate3d(
-        calc(-50% + var(--album-shelf-x) + var(--album-drag, 0px)),
+        calc(-50% + var(--album-shelf-x)),
         var(--album-shelf-y),
         var(--album-shelf-z)
       )
@@ -481,8 +480,7 @@
   }
 
   .album-guess-item.is-active {
-    transform: translate3d(calc(-50% + var(--album-drag-active, 0px)), -0.55rem, 4rem)
-      rotateY(var(--album-drag-rotation, 0deg)) scale(1.08);
+    transform: translate3d(-50%, -0.55rem, 4rem) rotateY(0deg) scale(1.08);
   }
 
   .album-guess-item:not(.is-active) .album-guess-cover {
