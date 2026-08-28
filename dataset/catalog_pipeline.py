@@ -42,7 +42,15 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "operation",
-        choices=("discover", "populate", "refresh", "verify", "export-delta", "evaluate"),
+        choices=(
+            "discover",
+            "populate",
+            "refresh",
+            "disable-streaming-failures",
+            "verify",
+            "export-delta",
+            "evaluate",
+        ),
     )
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
     parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE)
@@ -55,12 +63,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recordings-per-artist", type=int, default=15)
     parser.add_argument("--discovery-workers", type=int, default=12)
     parser.add_argument("--checkpoint-size", type=int, default=1000)
+    parser.add_argument(
+        "--checkpoint-target",
+        type=int,
+        help="Explicit enabled-song boundary for an interruption-safe population checkpoint",
+    )
     parser.add_argument("--country", default="US")
     parser.add_argument("--year-min", type=int, default=1950)
     parser.add_argument("--year-max", type=int, default=datetime.now(UTC).year)
     parser.add_argument("--preview-workers", type=int, default=8)
     parser.add_argument("--match-batch-size", type=int, default=64)
     parser.add_argument("--browser-workers", type=int, default=12)
+    parser.add_argument(
+        "--retry-failures",
+        action="store_true",
+        help="Retry unresolved Spotify link or hydration failures during refresh",
+    )
+    parser.add_argument(
+        "--include-transient-failures",
+        action="store_true",
+        help="Also disable manually retried navigation/hydration failures",
+    )
     return parser.parse_args()
 
 
@@ -176,11 +199,22 @@ def populate(args: argparse.Namespace) -> dict[str, Any]:
     if manifest.get("status") != "ready":
         raise SystemExit("candidate manifest is not ready; resolve discovery gaps first")
     initial_count = catalog_state(args.database).enabled_count
-    checkpoint_target = min(args.target_total, initial_count + args.checkpoint_size)
+    checkpoint_target = min(
+        args.target_total,
+        args.checkpoint_target
+        if args.checkpoint_target is not None
+        else initial_count + args.checkpoint_size,
+    )
+    if checkpoint_target < initial_count:
+        raise SystemExit(
+            f"checkpoint target {checkpoint_target:,} is below current catalog "
+            f"count {initial_count:,}"
+        )
     if checkpoint_target <= initial_count:
         return {"before": initial_count, "after": initial_count, "accepted": 0}
     known_mbids, _known_apple_ids = known_catalog_identities(args.database)
     needed = checkpoint_target - initial_count
+    refill_cushion = 1000 if needed < 100 else 250
     candidates = [
         {
             "recording_mbid": item["recording_mbid"],
@@ -196,7 +230,7 @@ def populate(args: argparse.Namespace) -> dict[str, Any]:
         and not has_fresh_negative_apple_match(
             args.cache, item["recording_mbid"], country=args.country
         )
-    ][: max(needed * 4, needed + 250)]
+    ][: max(needed * 4, needed + refill_cushion)]
     metadata = fetch_musicbrainz_metadata(args.cache, candidates)
     eligible = [
         candidate
@@ -248,7 +282,54 @@ def refresh(args: argparse.Namespace) -> None:
         "--browser-workers",
         str(args.browser_workers),
     ]
+    if args.retry_failures:
+        command.append("--retry-failures")
     subprocess.run(command, cwd=REPOSITORY_DIR, check=True)
+
+
+def disable_persistent_streaming_failures(
+    database: Path, *, include_transient_failures: bool = False
+) -> dict[str, Any]:
+    """Disable only fully checked rows whose Spotify identity still cannot be verified."""
+    persistent_statuses = [
+        "artist_mismatch",
+        "duration_mismatch",
+        "no_valid_candidates",
+        "title_mismatch",
+    ]
+    if include_transient_failures:
+        persistent_statuses.append("navigation_or_hydration_error")
+    placeholders = ",".join("?" for _ in persistent_statuses)
+    with sqlite3.connect(database) as connection:
+        rows = connection.execute(
+            "SELECT s.id, s.title, s.artist, s.musicbrainz_id, f.status "
+            "FROM songs s JOIN spotify_backfill_failures f ON f.song_id = s.id "
+            "WHERE s.enabled = 1 AND s.spotify_url IS NULL AND s.stream_count IS NULL "
+            "AND f.musicbrainz_relationship_checked_at IS NOT NULL "
+            "AND f.catalog_lookup_checked_at IS NOT NULL "
+            f"AND f.status IN ({placeholders}) ORDER BY s.id",
+            tuple(persistent_statuses),
+        ).fetchall()
+        with connection:
+            connection.executemany(
+                "UPDATE songs SET enabled = 0 WHERE id = ? AND enabled = 1",
+                [(int(row[0]),) for row in rows],
+            )
+    payload = {
+        "disabled_count": len(rows),
+        "songs": [
+            {
+                "id": int(row[0]),
+                "title": str(row[1]),
+                "artist": str(row[2]),
+                "musicbrainz_id": str(row[3]),
+                "failure_status": str(row[4]),
+            }
+            for row in rows
+        ],
+    }
+    print(json.dumps(payload, indent=2))
+    return payload
 
 
 def export_delta(database: Path, snapshot: Path, output: Path) -> dict[str, Any]:
@@ -417,7 +498,8 @@ def evaluate(database: Path, metrics: Path, output: Path) -> dict[str, Any]:
                 dict(row)
                 for row in connection.execute(
                     "SELECT operation, started_at, finished_at, status, accepted_songs "
-                    "FROM pipeline_runs ORDER BY started_at"
+                    "FROM pipeline_runs WHERE NOT (operation = 'evaluate' AND status = 'running') "
+                    "ORDER BY started_at"
                 )
             ]
     baseline_path = REPOSITORY_DIR / "dataset" / "reports" / "catalog-post-clean-5000.json"
@@ -496,6 +578,12 @@ def main() -> None:
         elif args.operation == "refresh":
             refresh(args)
             result, accepted = {}, 0
+        elif args.operation == "disable-streaming-failures":
+            result = disable_persistent_streaming_failures(
+                args.database,
+                include_transient_failures=args.include_transient_failures,
+            )
+            accepted = 0
         elif args.operation == "verify":
             result = verify_catalog(
                 args.database,

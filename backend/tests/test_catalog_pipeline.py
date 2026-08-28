@@ -3,7 +3,11 @@ import sqlite3
 from argparse import Namespace
 from pathlib import Path
 
-from dataset.catalog_pipeline import discover, export_delta
+from dataset.catalog_pipeline import (
+    disable_persistent_streaming_failures,
+    discover,
+    export_delta,
+)
 from dataset.populate import initialize_database
 from dataset.verify import snapshot_catalog
 
@@ -77,3 +81,30 @@ def test_export_delta_contains_only_new_application_rows(tmp_path: Path) -> None
     assert payload["new_song_count"] == 1
     assert payload["songs"][0]["musicbrainz_id"] == "new"
     assert "discovery manifests" in payload["excludes"]
+
+
+def test_disable_persistent_streaming_failures_is_idempotent(tmp_path: Path) -> None:
+    database = tmp_path / "catalog.sqlite3"
+    initialize_database(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO songs (id, title, artist, release_year, musicbrainz_id, "
+            "apple_track_id, preview_url, apple_music_url, stream_count_status, enabled) "
+            "VALUES (1, 'Unresolved', 'Artist', 2000, 'mbid', 'apple', "
+            "'https://preview', 'https://music.apple.com/track', 'missing_link', 1)"
+        )
+        connection.execute(
+            "INSERT INTO spotify_backfill_failures "
+            "(song_id, status, match_method, attempted_at, "
+            "musicbrainz_relationship_checked_at, catalog_lookup_checked_at) "
+            "VALUES (1, 'title_mismatch', 'exact_metadata', '2026-01-01', "
+            "'2026-01-01', '2026-01-01')"
+        )
+
+    first = disable_persistent_streaming_failures(database)
+    second = disable_persistent_streaming_failures(database)
+
+    assert first["disabled_count"] == 1
+    assert second["disabled_count"] == 0
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT enabled FROM songs WHERE id = 1").fetchone()[0] == 0
