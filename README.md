@@ -27,7 +27,7 @@ The API is stateless. There are no game, account, history, or session tables. So
 
 ## Prerequisites
 
-- Python 3.11 or newer
+- Python 3.13 or newer
 - [`uv`](https://docs.astral.sh/uv/)
 - Node.js
 - [`pnpm`](https://pnpm.io/)
@@ -39,7 +39,6 @@ Install the locked Python environment and create the SQLite database:
 ```bash
 cd backend
 uv sync
-uv run python -m app.database
 ```
 
 Run the API:
@@ -48,7 +47,7 @@ Run the API:
 just dev
 ```
 
-FastAPI also applies the idempotent schema migration during startup, so the explicit initialization command is optional. By default the ignored local database is created at `backend/data/songuess.sqlite3`. Copy `.env.example` to `.env` and export its values if a different path is needed; the application does not load dotenv files implicitly.
+FastAPI applies the idempotent schema migration during startup. By default the ignored local database is created at `backend/data/songuess.sqlite3`. Copy `.env.example` to `.env` and export its values if a different path is needed; the application does not load dotenv files implicitly.
 
 Available runtime endpoints:
 
@@ -206,4 +205,80 @@ ListenBrainz windows and token-free direct-artist LB Radio expansion. A configur
 required. An insufficient manifest cannot be populated; increase the candidate or per-artist
 limits and rerun `just discover-10000` before enrichment.
 
-The schema and query style are SQLite/D1-compatible, frontend requests are relative, and Astro builds static assets. This keeps the code structurally ready for a later Cloudflare adaptation, but this repository contains no Cloudflare deployment configuration, infrastructure, secrets, domains, CI/CD, or deployment instructions.
+## Cloudflare Worker deployment
+
+Production uses one Python Worker. Requests under `/api/*` run through FastAPI and the request's
+`env.DB` D1 binding; all other requests are served directly from `frontend/dist` by Workers Static
+Assets. Local Uvicorn development continues to use `backend/data/songuess.sqlite3` through the same
+async repository contract.
+
+The runtime search tables in migration `012_runtime_search.sql` keep D1 queries bounded. FTS5
+returns at most 500 candidates for Python ranking, recent-song exclusions use one JSON binding even
+for 500 IDs, and random rounds use an exact count plus random offset instead of
+`ORDER BY RANDOM()`.
+
+### Local Worker validation
+
+Install the locked dependencies, build the frontend, migrate local D1, and start the real Workers
+runtime:
+
+Use Python 3.13, `uv` 0.12.3 or newer, and Node.js 22 LTS for the Python Workers toolchain.
+
+```bash
+cd backend
+uv sync --locked --dev
+cd ../frontend
+pnpm install --frozen-lockfile
+cd ..
+just build
+just d1-migrate-local
+just worker-dev
+```
+
+Wrangler persists local D1 state under the ignored `.wrangler/` directory. To exercise a catalog,
+generate and import the application-only seed before starting the Worker:
+
+```bash
+just export-d1 output/catalog.sql
+just d1-import-local output/catalog.sql
+```
+
+The exporter writes `output/catalog.sql` plus `output/catalog.sql.manifest.json`. The manifest
+contains table counts and a deterministic SHA-256 over enabled application rows. The SQL includes
+only enabled songs, referenced dimensions and relationships, genre evidence, and derived runtime
+search rows. Provider caches, browser telemetry, manifests, checkpoints, metrics, and Spotify
+backfill failures are excluded.
+
+### Preview and production resources
+
+The initial Cloudflare resources are live:
+
+- Preview Worker: `https://songuess-preview.bruno-farfan-miquel.workers.dev`
+- Production Worker: `https://songuess.bruni.to`
+- Preview D1: `songuess-preview` (`97efbc35-917c-40da-9354-5351de80b73a`)
+- Production D1: `songuess-production` (`7b19809e-0573-4ef5-b419-556456d1ed5e`)
+
+For subsequent catalog releases:
+
+1. Generate and verify a fresh application-only seed and manifest.
+2. Apply migrations explicitly with `wrangler d1 migrations apply <database> --remote --env
+   <preview|production>`.
+3. Import a verified seed explicitly with `wrangler d1 execute <database> --remote --env
+   <preview|production> --file output/catalog.sql`.
+4. Compare D1 table counts with the generated manifest, deploy preview, and complete the gameplay
+   and audio smoke tests before approving production.
+
+The root Wrangler file documents the complete deployment; the backend mirror is required because
+`pywrangler` resolves its project beside `backend/pyproject.toml`. Keep their deployment values in
+sync.
+
+Ordinary Worker deployment never migrates or replaces catalog data. `.github/workflows/ci.yml`
+runs backend tests, frontend tests, and the production build. The deployment and D1 migration
+workflows are manual, accept only `main`, and use GitHub environments so preview/production
+approval rules can be configured independently. `CLOUDFLARE_ACCOUNT_ID` is configured in GitHub;
+add a scoped `CLOUDFLARE_API_TOKEN` repository or environment secret before invoking a remote
+workflow.
+
+The production Custom Domain is managed by Wrangler and Cloudflare automatically provisions its
+DNS record and certificate. Use Workers Logs and D1 query metadata to inspect errors, CPU time,
+duration, and `rows_read`; catalog imports remain a separately approved operational action.

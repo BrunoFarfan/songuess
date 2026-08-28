@@ -4,9 +4,9 @@ default:
 
 # Fix lint issues, format the backend, and verify it is clean.
 lint:
-  uv run ruff check app tests ../dataset --fix
-  uv run ruff format app tests ../dataset
-  uv run ruff check app tests ../dataset
+  uv run ruff check src tests ../dataset --fix
+  uv run ruff format src tests ../dataset
+  uv run ruff check src tests ../dataset
 
 # Run all backend and importer tests.
 test:
@@ -14,7 +14,11 @@ test:
 
 # Start the FastAPI development server.
 dev:
-  uv run uvicorn app.main:app --reload
+  uv run uvicorn --app-dir src app.main:app --reload
+
+# Build a complete application-only D1 seed and deterministic manifest.
+export-d1 output="../output/catalog.sql":
+  cd .. && uv run --project backend python -m dataset.export_d1 --output {{output}}
 
 # Build the local catalog from ListenBrainz, MusicBrainz, and Apple.
 populate *args:

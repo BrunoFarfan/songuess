@@ -1,0 +1,57 @@
+{
+  // pywrangler requires config and python_modules beside the uv project.
+  // Keep deployment values in sync with ../wrangler.jsonc.
+  "name": "songuess-preview",
+  "main": "./src/worker.py",
+  "base_dir": "./src",
+  "find_additional_modules": true,
+  "compatibility_date": "2026-08-27",
+  "compatibility_flags": ["python_workers"],
+  "assets": {
+    "directory": "../frontend/dist",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "songuess-local",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../migrations"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "env": {
+    "preview": {
+      "name": "songuess-preview",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "songuess-preview",
+          "database_id": "97efbc35-917c-40da-9354-5351de80b73a",
+          "migrations_dir": "../migrations"
+        }
+      ]
+    },
+    "production": {
+      "name": "songuess",
+      "routes": [
+        {
+          "pattern": "songuess.bruni.to",
+          "custom_domain": true
+        }
+      ],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "songuess-production",
+          "database_id": "7b19809e-0573-4ef5-b419-556456d1ed5e",
+          "migrations_dir": "../migrations"
+        }
+      ]
+    }
+  }
+}

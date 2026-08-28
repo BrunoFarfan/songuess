@@ -1,8 +1,10 @@
-import re
+import asyncio
+import json
+import secrets
 import sqlite3
-import unicodedata
 from difflib import SequenceMatcher
 
+from app.database import Database, Row, SQLiteDatabase
 from app.models import (
     ArtistOption,
     FilterContextRequest,
@@ -12,9 +14,10 @@ from app.models import (
     SongReveal,
     SongSearchResult,
 )
+from app.search_index import normalize_search_text as _normalize_search_text
 
 
-def choose_round(connection: sqlite3.Connection, request: RoundRequest) -> RoundResponse | None:
+def _round_filter(request: RoundRequest) -> tuple[list[str], list[object]]:
     clauses = [
         "s.enabled = 1",
         "s.release_year BETWEEN ? AND ?",
@@ -63,31 +66,29 @@ def choose_round(connection: sqlite3.Connection, request: RoundRequest) -> Round
 
     excluded_ids = sorted({song_id for song_id in request.exclude_ids if song_id > 0})
     if excluded_ids:
-        placeholders = ", ".join("?" for _ in excluded_ids)
-        clauses.append(f"s.id NOT IN ({placeholders})")
-        parameters.extend(excluded_ids)
+        clauses.append("s.id NOT IN (SELECT CAST(value AS INTEGER) FROM json_each(?))")
+        parameters.append(json.dumps(excluded_ids, separators=(",", ":")))
 
-    row = connection.execute(
-        "SELECT s.id, s.preview_url "
-        "FROM songs s "
-        f"WHERE {' AND '.join(clauses)} "
-        "ORDER BY RANDOM() LIMIT 1",
-        parameters,
-    ).fetchone()
+    return clauses, parameters
+
+
+async def choose_round_async(database: Database, request: RoundRequest) -> RoundResponse | None:
+    clauses, parameters = _round_filter(request)
+    where = " AND ".join(clauses)
+    count_row = await database.fetch_one(
+        f"SELECT COUNT(*) AS total FROM songs s WHERE {where}", parameters
+    )
+    total = int(count_row["total"]) if count_row is not None else 0
+    if total == 0:
+        return None
+
+    row = await database.fetch_one(
+        f"SELECT s.id, s.preview_url FROM songs s WHERE {where} ORDER BY s.id LIMIT 1 OFFSET ?",
+        [*parameters, secrets.randbelow(total)],
+    )
     if row is None:
         return None
     return RoundResponse(song_id=row["id"], preview_url=row["preview_url"])
-
-
-def _normalize_search_text(value: object) -> str:
-    """Return a stable ASCII/caseless representation for catalog search."""
-    ascii_value = (
-        unicodedata.normalize("NFKD", str(value or ""))
-        .encode("ascii", "ignore")
-        .decode("ascii")
-        .casefold()
-    )
-    return " ".join(re.findall(r"[a-z0-9]+", ascii_value))
 
 
 def _fuzzy_similarity(query: str, candidate: str) -> float:
@@ -96,7 +97,7 @@ def _fuzzy_similarity(query: str, candidate: str) -> float:
     return SequenceMatcher(None, query, candidate, autojunk=False).ratio()
 
 
-def _song_search_rank(row: sqlite3.Row, query: str) -> tuple[object, ...]:
+def _song_search_rank(row: Row, query: str) -> tuple[object, ...]:
     query_compact = query.replace(" ", "")
     title = _normalize_search_text(row["title"])
     artist = _normalize_search_text(row["artist"])
@@ -139,18 +140,83 @@ def _song_search_rank(row: sqlite3.Row, query: str) -> tuple[object, ...]:
     )
 
 
-def search_songs(
-    connection: sqlite3.Connection,
+def _trigram_match_query(query: str) -> str:
+    compact = query.replace(" ", "")
+    trigrams = sorted({compact[index : index + 3] for index in range(len(compact) - 2)})
+    return " OR ".join(f'"{trigram}"' for trigram in trigrams)
+
+
+async def _song_candidates(database: Database, query: str, candidate_limit: int) -> list[Row]:
+    columns = "s.id, s.title, s.artist, s.album, s.release_year, s.artwork_url, s.popularity_score"
+    if not query:
+        return await database.fetch_all(
+            f"SELECT {columns} FROM song_search ss "
+            "JOIN songs s ON s.id = ss.song_id "
+            "WHERE s.enabled = 1 AND s.preview_url <> '' "
+            "ORDER BY ss.normalized_title, ss.normalized_artist, s.id LIMIT ?",
+            [candidate_limit],
+        )
+
+    compact = query.replace(" ", "")
+    if len(compact) < 3:
+        prefix = f"{compact}%"
+        return await database.fetch_all(
+            f"SELECT {columns} FROM songs s JOIN ("
+            "SELECT song_id FROM song_search WHERE normalized_title_compact LIKE ? "
+            "UNION SELECT song_id FROM song_search WHERE normalized_artist_compact LIKE ? "
+            "UNION SELECT song_id FROM song_search WHERE normalized_album_compact LIKE ?"
+            ") candidates ON candidates.song_id = s.id "
+            "WHERE s.enabled = 1 AND s.preview_url <> '' LIMIT ?",
+            [prefix, prefix, prefix, candidate_limit],
+        )
+
+    return await database.fetch_all(
+        f"SELECT {columns} FROM song_search_fts f "
+        "JOIN songs s ON s.id = CAST(f.song_id AS INTEGER) "
+        "WHERE song_search_fts MATCH ? AND s.enabled = 1 AND s.preview_url <> '' "
+        "ORDER BY bm25(song_search_fts) LIMIT ?",
+        [_trigram_match_query(query), candidate_limit],
+    )
+
+
+async def search_songs_async(
+    database: Database,
     query: str,
     limit: int = 40,
     offset: int = 0,
-) -> list[SongSearchResult]:
+) -> tuple[list[SongSearchResult], int]:
+    if isinstance(database, SQLiteDatabase):
+        database.ensure_search_index()
     normalized_query = _normalize_search_text(query)
-    rows = connection.execute(
-        "SELECT id, title, artist, album, release_year, artwork_url, popularity_score "
-        "FROM songs "
-        "WHERE enabled = 1 AND preview_url <> ''"
-    ).fetchall()
+    if not normalized_query:
+        count_row = await database.fetch_one(
+            "SELECT COUNT(*) AS total FROM song_search ss "
+            "JOIN songs s ON s.id = ss.song_id "
+            "WHERE s.enabled = 1 AND s.preview_url <> ''"
+        )
+        rows = await database.fetch_all(
+            "SELECT s.id, s.title, s.artist, s.album, s.release_year, "
+            "s.artwork_url, s.popularity_score FROM song_search ss "
+            "JOIN songs s ON s.id = ss.song_id "
+            "WHERE s.enabled = 1 AND s.preview_url <> '' "
+            "ORDER BY ss.normalized_title, ss.normalized_artist, s.id LIMIT ? OFFSET ?",
+            [limit, offset],
+        )
+        return [
+            SongSearchResult(
+                id=row["id"],
+                title=row["title"],
+                artist=row["artist"],
+                album=row["album"],
+                release_year=row["release_year"],
+                artwork_url=row["artwork_url"],
+                popularity_score=row["popularity_score"],
+            )
+            for row in rows
+        ], int(count_row["total"]) if count_row is not None else 0
+
+    candidate_limit = min(max(offset + limit, 100), 500)
+    rows = await _song_candidates(database, normalized_query, candidate_limit)
     if normalized_query:
         ordered_rows = sorted(rows, key=lambda row: _song_search_rank(row, normalized_query))
     else:
@@ -163,7 +229,7 @@ def search_songs(
             ),
         )
     ranked_rows = ordered_rows[offset : offset + limit]
-    return [
+    items = [
         SongSearchResult(
             id=row["id"],
             title=row["title"],
@@ -175,30 +241,45 @@ def search_songs(
         )
         for row in ranked_rows
     ]
+    return items, len(ordered_rows)
 
 
-def count_searchable_songs(connection: sqlite3.Connection) -> int:
-    row = connection.execute(
-        "SELECT COUNT(*) AS total FROM songs WHERE enabled = 1 AND preview_url <> ''"
-    ).fetchone()
-    return int(row["total"])
-
-
-def search_artists(
-    connection: sqlite3.Connection, query: str, limit: int = 10
+async def search_artists_async(
+    database: Database, query: str, limit: int = 10
 ) -> list[ArtistOption]:
+    if isinstance(database, SQLiteDatabase):
+        database.ensure_search_index()
     normalized_query = _normalize_search_text(query)
     if not normalized_query:
         return []
 
-    rows = connection.execute(
+    compact_query = normalized_query.replace(" ", "")
+    if len(compact_query) < 3:
+        candidate_rows = await database.fetch_all(
+            "SELECT DISTINCT artist_id FROM artist_search_aliases "
+            "WHERE normalized_alias_compact LIKE ? LIMIT 100",
+            [f"{compact_query}%"],
+        )
+    else:
+        candidate_rows = await database.fetch_all(
+            "SELECT DISTINCT CAST(artist_id AS INTEGER) AS artist_id "
+            "FROM artist_search_fts WHERE artist_search_fts MATCH ? LIMIT 100",
+            [_trigram_match_query(normalized_query)],
+        )
+    artist_ids = sorted({int(row["artist_id"]) for row in candidate_rows})
+    if not artist_ids:
+        return []
+
+    rows = await database.fetch_all(
         "SELECT a.id, a.musicbrainz_id, a.name, a.disambiguation, "
         "sa.credited_name, sa.song_id FROM artists a "
         "JOIN song_artists sa ON sa.artist_id = a.id "
         "JOIN songs s ON s.id = sa.song_id "
         "WHERE s.enabled = 1 AND s.preview_url <> '' "
+        "AND a.id IN (SELECT CAST(value AS INTEGER) FROM json_each(?)) "
         "ORDER BY a.id, sa.song_id",
-    ).fetchall()
+        [json.dumps(artist_ids, separators=(",", ":"))],
+    )
 
     artists: dict[int, dict[str, object]] = {}
     for row in rows:
@@ -280,17 +361,17 @@ def _artist_alias_rank(alias: str, query: str) -> tuple[object, ...]:
     )
 
 
-def get_song(connection: sqlite3.Connection, song_id: int) -> SongReveal | None:
-    row = connection.execute(
+async def get_song_async(database: Database, song_id: int) -> SongReveal | None:
+    row = await database.fetch_one(
         "SELECT id, title, artist, album, release_year, artwork_url, popularity_score, "
         "preview_url, apple_music_url, spotify_url "
         "FROM songs WHERE id = ? AND enabled = 1",
         (song_id,),
-    ).fetchone()
+    )
     if row is None:
         return None
 
-    genre_rows = connection.execute(
+    genre_rows = await database.fetch_all(
         "SELECT g.name FROM genres g "
         "JOIN song_genres sg ON sg.genre_id = g.id "
         "LEFT JOIN song_genre_evidence sge "
@@ -298,7 +379,7 @@ def get_song(connection: sqlite3.Connection, song_id: int) -> SongReveal | None:
         "WHERE sg.song_id = ? "
         "ORDER BY COALESCE(sge.rank, 999), g.name COLLATE NOCASE",
         (song_id,),
-    ).fetchall()
+    )
     return SongReveal(
         id=row["id"],
         title=row["title"],
@@ -314,25 +395,27 @@ def get_song(connection: sqlite3.Connection, song_id: int) -> SongReveal | None:
     )
 
 
-def get_filter_metadata(connection: sqlite3.Connection) -> FilterMetadata:
-    summary = connection.execute(
+async def get_filter_metadata_async(database: Database) -> FilterMetadata:
+    summary = await database.fetch_one(
         "SELECT MIN(release_year) AS year_min, MAX(release_year) AS year_max, "
         "COUNT(*) AS song_count "
         "FROM songs WHERE enabled = 1 AND popularity_score IS NOT NULL"
-    ).fetchone()
-    genre_rows = connection.execute(
+    )
+    if summary is None:
+        raise RuntimeError("Database did not return catalog metadata")
+    genre_rows = await database.fetch_all(
         "SELECT DISTINCT g.name FROM genres g "
         "JOIN song_genres sg ON sg.genre_id = g.id "
         "JOIN songs s ON s.id = sg.song_id "
         "WHERE s.enabled = 1 AND s.popularity_score IS NOT NULL "
         "ORDER BY g.name COLLATE NOCASE"
-    ).fetchall()
-    country_rows = connection.execute(
+    )
+    country_rows = await database.fetch_all(
         "SELECT DISTINCT c.code FROM countries c "
         "JOIN song_countries sc ON sc.country_id = c.id "
         "JOIN songs s ON s.id = sc.song_id "
         "WHERE s.enabled = 1 AND s.popularity_score IS NOT NULL ORDER BY c.code"
-    ).fetchall()
+    )
     return FilterMetadata(
         genres=[row["name"] for row in genre_rows],
         countries=[row["code"] for row in country_rows],
@@ -402,53 +485,55 @@ def _context_clauses(
     return clauses, parameters
 
 
-def get_contextual_filter_metadata(
-    connection: sqlite3.Connection, request: FilterContextRequest
+async def get_contextual_filter_metadata_async(
+    database: Database, request: FilterContextRequest
 ) -> FilterMetadata:
     """Return progressive facets; every facet only applies selections before it."""
 
     genre_clauses, genre_parameters = _context_clauses(request)
-    genre_rows = connection.execute(
+    genre_rows = await database.fetch_all(
         "SELECT DISTINCT g.name FROM genres g "
         "JOIN song_genres sg ON sg.genre_id = g.id "
         "JOIN songs s ON s.id = sg.song_id "
         f"WHERE {' AND '.join(genre_clauses)} ORDER BY g.name COLLATE NOCASE",
         genre_parameters,
-    ).fetchall()
+    )
 
     country_clauses, country_parameters = _context_clauses(request, genres=True)
-    country_rows = connection.execute(
+    country_rows = await database.fetch_all(
         "SELECT DISTINCT c.code FROM countries c "
         "JOIN song_countries sc ON sc.country_id = c.id "
         "JOIN songs s ON s.id = sc.song_id "
         f"WHERE {' AND '.join(country_clauses)} ORDER BY c.code",
         country_parameters,
-    ).fetchall()
+    )
 
     year_clauses, year_parameters = _context_clauses(request, genres=True, countries=True)
-    year_summary = connection.execute(
+    year_summary = await database.fetch_one(
         "SELECT MIN(s.release_year) AS year_min, MAX(s.release_year) AS year_max "
         f"FROM songs s WHERE {' AND '.join(year_clauses)}",
         year_parameters,
-    ).fetchone()
+    )
 
     popularity_clauses, popularity_parameters = _context_clauses(
         request, genres=True, countries=True, years=True
     )
-    popularity_summary = connection.execute(
+    popularity_summary = await database.fetch_one(
         "SELECT MIN(s.popularity_score) AS popularity_min, "
         "MAX(s.popularity_score) AS popularity_max "
         f"FROM songs s WHERE {' AND '.join(popularity_clauses)}",
         popularity_parameters,
-    ).fetchone()
+    )
 
     count_clauses, count_parameters = _context_clauses(
         request, genres=True, countries=True, years=True, popularity=True
     )
-    count_row = connection.execute(
+    count_row = await database.fetch_one(
         f"SELECT COUNT(*) AS song_count FROM songs s WHERE {' AND '.join(count_clauses)}",
         count_parameters,
-    ).fetchone()
+    )
+    if year_summary is None or popularity_summary is None or count_row is None:
+        raise RuntimeError("Database did not return contextual filter metadata")
     return FilterMetadata(
         genres=[row["name"] for row in genre_rows],
         countries=[row["code"] for row in country_rows],
@@ -458,3 +543,48 @@ def get_contextual_filter_metadata(
         popularity_max=popularity_summary["popularity_max"] or 0,
         song_count=count_row["song_count"],
     )
+
+
+# Preserve the synchronous repository API used by local catalog tooling and tests.
+# The FastAPI runtime calls the async variants directly.
+def choose_round(connection: sqlite3.Connection, request: RoundRequest) -> RoundResponse | None:
+    return asyncio.run(choose_round_async(SQLiteDatabase(connection), request))
+
+
+def search_songs(
+    connection: sqlite3.Connection,
+    query: str,
+    limit: int = 40,
+    offset: int = 0,
+) -> list[SongSearchResult]:
+    items, _ = asyncio.run(
+        search_songs_async(SQLiteDatabase(connection), query, limit=limit, offset=offset)
+    )
+    return items
+
+
+def count_searchable_songs(connection: sqlite3.Connection) -> int:
+    row = connection.execute(
+        "SELECT COUNT(*) AS total FROM songs WHERE enabled = 1 AND preview_url <> ''"
+    ).fetchone()
+    return int(row["total"])
+
+
+def search_artists(
+    connection: sqlite3.Connection, query: str, limit: int = 10
+) -> list[ArtistOption]:
+    return asyncio.run(search_artists_async(SQLiteDatabase(connection), query, limit=limit))
+
+
+def get_song(connection: sqlite3.Connection, song_id: int) -> SongReveal | None:
+    return asyncio.run(get_song_async(SQLiteDatabase(connection), song_id))
+
+
+def get_filter_metadata(connection: sqlite3.Connection) -> FilterMetadata:
+    return asyncio.run(get_filter_metadata_async(SQLiteDatabase(connection)))
+
+
+def get_contextual_filter_metadata(
+    connection: sqlite3.Connection, request: FilterContextRequest
+) -> FilterMetadata:
+    return asyncio.run(get_contextual_filter_metadata_async(SQLiteDatabase(connection), request))

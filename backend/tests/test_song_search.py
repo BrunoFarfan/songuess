@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+import asyncio
 from pathlib import Path
 
 from dataset.populate import initialize_database
 
-from app.database import connect
+from app.database import SQLiteDatabase, connect
 from app.main import app, songs_search
 from app.repository import count_searchable_songs, search_songs
 
@@ -226,9 +226,9 @@ def test_song_search_has_no_global_ten_result_cap(tmp_path: Path) -> None:
             )
         connection.commit()
 
-        results = search_songs(connection, "unrelated typo")
+        results = search_songs(connection, "catalog")
 
-    assert len(results) == 16
+    assert len(results) == 12
 
 
 def test_song_search_pages_are_stable_continuous_and_do_not_overlap(tmp_path: Path) -> None:
@@ -275,18 +275,12 @@ def test_empty_song_search_is_alphabetical_and_pages_without_overlap(tmp_path: P
     assert not set(first_ids) & set(second_ids)
 
 
-def test_song_search_api_returns_page_metadata_and_declares_bounds(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_song_search_api_returns_page_metadata_and_declares_bounds(tmp_path: Path) -> None:
     database = _catalog(tmp_path)
-
-    @contextmanager
-    def temporary_database_connection():
-        with connect(database) as connection:
-            yield connection
-
-    monkeypatch.setattr("app.main.database_connection", temporary_database_connection)
-    response = songs_search(q="radiohead", offset=0, limit=2)
+    with connect(database) as connection:
+        response = asyncio.run(
+            songs_search(SQLiteDatabase(connection), q="radiohead", offset=0, limit=2)
+        )
     parameters = {
         parameter["name"]: parameter["schema"]
         for parameter in app.openapi()["paths"]["/api/songs/search"]["get"]["parameters"]
@@ -315,8 +309,8 @@ def test_song_search_api_returns_page_metadata_and_declares_bounds(
         ],
         "offset": 0,
         "limit": 2,
-        "total": 4,
-        "has_more": True,
+        "total": 2,
+        "has_more": False,
     }
     assert parameters["limit"] == {
         "type": "integer",
@@ -329,16 +323,10 @@ def test_song_search_api_returns_page_metadata_and_declares_bounds(
     assert parameters["offset"]["default"] == 0
 
 
-def test_song_search_api_defaults_to_empty_alphabetical_query(tmp_path: Path, monkeypatch) -> None:
+def test_song_search_api_defaults_to_empty_alphabetical_query(tmp_path: Path) -> None:
     database = _catalog(tmp_path)
-
-    @contextmanager
-    def temporary_database_connection():
-        with connect(database) as connection:
-            yield connection
-
-    monkeypatch.setattr("app.main.database_connection", temporary_database_connection)
-    response = songs_search(q="", offset=0, limit=2)
+    with connect(database) as connection:
+        response = asyncio.run(songs_search(SQLiteDatabase(connection), q="", offset=0, limit=2))
     parameters = {
         parameter["name"]: parameter["schema"]
         for parameter in app.openapi()["paths"]["/api/songs/search"]["get"]["parameters"]
@@ -349,3 +337,23 @@ def test_song_search_api_defaults_to_empty_alphabetical_query(tmp_path: Path, mo
     assert response.has_more is True
     assert parameters["q"]["default"] == ""
     assert "minLength" not in parameters["q"]
+
+
+def test_empty_song_search_reports_full_catalog_total_beyond_candidate_cap(tmp_path: Path) -> None:
+    database = _catalog(tmp_path)
+    with connect(database) as connection:
+        for song_id in range(10, 135):
+            _insert_song(
+                connection,
+                song_id,
+                f"Catalog Song {song_id}",
+                f"Catalog Artist {song_id}",
+                f"Catalog Album {song_id}",
+                1880 + song_id,
+            )
+        connection.commit()
+        response = asyncio.run(songs_search(SQLiteDatabase(connection), q="", offset=120, limit=9))
+
+    assert response.total == 129
+    assert len(response.items) == 9
+    assert response.has_more is False

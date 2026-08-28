@@ -1,9 +1,11 @@
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 
-from app.database import database_connection, initialize_database
+from app.database import Database, initialize_database, request_database
 from app.models import (
     ArtistOption,
     FilterContextRequest,
@@ -14,19 +16,19 @@ from app.models import (
     SongSearchPage,
 )
 from app.repository import (
-    choose_round,
-    count_searchable_songs,
-    get_contextual_filter_metadata,
-    get_filter_metadata,
-    get_song,
-    search_artists,
-    search_songs,
+    choose_round_async,
+    get_contextual_filter_metadata_async,
+    get_filter_metadata_async,
+    get_song_async,
+    search_artists_async,
+    search_songs_async,
 )
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    initialize_database()
+    if sys.platform != "emscripten":
+        initialize_database()
     yield
 
 
@@ -38,7 +40,7 @@ app = FastAPI(
 
 
 @app.get("/api/health")
-def health() -> dict[str, str]:
+async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
@@ -47,9 +49,11 @@ def health() -> dict[str, str]:
     response_model=RoundResponse,
     responses={404: {"description": "No songs match the requested filters"}},
 )
-def create_round(request: RoundRequest) -> RoundResponse:
-    with database_connection() as connection:
-        round_response = choose_round(connection, request)
+async def create_round(
+    request: RoundRequest,
+    database: Annotated[Database, Depends(request_database)],
+) -> RoundResponse:
+    round_response = await choose_round_async(database, request)
     if round_response is None:
         raise HTTPException(
             status_code=404,
@@ -62,14 +66,13 @@ def create_round(request: RoundRequest) -> RoundResponse:
 
 
 @app.get("/api/songs/search", response_model=SongSearchPage)
-def songs_search(
+async def songs_search(
+    database: Annotated[Database, Depends(request_database)],
     q: str = Query(default="", max_length=120),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=40, ge=1, le=100),
 ) -> SongSearchPage:
-    with database_connection() as connection:
-        items = search_songs(connection, q, limit=limit, offset=offset)
-        total = count_searchable_songs(connection)
+    items, total = await search_songs_async(database, q, limit=limit, offset=offset)
     return SongSearchPage(
         items=items,
         offset=offset,
@@ -80,9 +83,11 @@ def songs_search(
 
 
 @app.get("/api/artists/search", response_model=list[ArtistOption])
-def artists_search(q: str = Query(min_length=1, max_length=120)) -> list[ArtistOption]:
-    with database_connection() as connection:
-        return search_artists(connection, q)
+async def artists_search(
+    database: Annotated[Database, Depends(request_database)],
+    q: str = Query(min_length=1, max_length=120),
+) -> list[ArtistOption]:
+    return await search_artists_async(database, q)
 
 
 @app.get(
@@ -90,9 +95,11 @@ def artists_search(q: str = Query(min_length=1, max_length=120)) -> list[ArtistO
     response_model=SongReveal,
     responses={404: {"description": "Song not found"}},
 )
-def song_reveal(song_id: int) -> SongReveal:
-    with database_connection() as connection:
-        song = get_song(connection, song_id)
+async def song_reveal(
+    song_id: int,
+    database: Annotated[Database, Depends(request_database)],
+) -> SongReveal:
+    song = await get_song_async(database, song_id)
     if song is None:
         raise HTTPException(
             status_code=404,
@@ -102,12 +109,15 @@ def song_reveal(song_id: int) -> SongReveal:
 
 
 @app.get("/api/filters", response_model=FilterMetadata)
-def filters() -> FilterMetadata:
-    with database_connection() as connection:
-        return get_filter_metadata(connection)
+async def filters(
+    database: Annotated[Database, Depends(request_database)],
+) -> FilterMetadata:
+    return await get_filter_metadata_async(database)
 
 
 @app.post("/api/filters/context", response_model=FilterMetadata)
-def contextual_filters(request: FilterContextRequest) -> FilterMetadata:
-    with database_connection() as connection:
-        return get_contextual_filter_metadata(connection, request)
+async def contextual_filters(
+    request: FilterContextRequest,
+    database: Annotated[Database, Depends(request_database)],
+) -> FilterMetadata:
+    return await get_contextual_filter_metadata_async(database, request)

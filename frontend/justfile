@@ -11,6 +11,10 @@ lint:
 test:
   pnpm test
 
+# Build the production static assets consumed by Cloudflare Workers.
+build:
+  pnpm build
+
 # Start the Astro development server.
 dev:
   pnpm dev

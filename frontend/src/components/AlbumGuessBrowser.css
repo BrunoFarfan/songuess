@@ -429,10 +429,10 @@
 
 @media (max-width: 420px) {
   .album-guess-browser {
-    --album-size: clamp(7.3rem, 34vw, 8rem);
-    margin-top: 0.75rem;
-    padding-top: 0.9rem;
-    padding-bottom: 0.35rem;
+    --album-size: clamp(4.8rem, 22vw, 5.4rem);
+    margin-top: 0.2rem;
+    padding-top: 0.3rem;
+    padding-bottom: 0.1rem;
   }
 
   .album-guess-deck {
@@ -444,23 +444,49 @@
   }
 
   .album-guess-copy {
-    min-height: 3.75rem;
-    margin-top: 0.35rem;
-    padding-inline: 2.8rem;
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+    min-height: 2.15rem;
+    gap: 0.12rem 0.45rem;
+    align-items: baseline;
+    margin-top: 0.05rem;
+    padding-inline: 2.5rem;
+    text-align: left;
+  }
+
+  .album-guess-copy strong {
+    min-width: 0;
+    font-size: 1rem;
+  }
+
+  .album-guess-copy small {
+    min-width: 0;
+    margin-top: 0;
+    font-size: 0.65rem;
+  }
+
+  .album-guess-copy .album-guess-artist {
+    text-align: right;
+  }
+
+  .album-guess-copy .album-guess-release {
+    margin-top: 0;
   }
 
   .album-guess-copy .album-guess-popularity {
-    margin-top: 0.25rem;
+    grid-template-columns: auto minmax(2.5rem, 3.5rem) auto;
+    gap: 0.3rem;
+    margin-top: 0;
+    font-size: 0.55rem;
   }
 
   .album-guess-stage {
-    height: calc(var(--album-size) + 1rem);
+    height: calc(var(--album-size) + 0.45rem);
     perspective: 54rem;
   }
 
   .album-guess-item.is-active {
-    transform: translate3d(calc(-50% + var(--album-drag-active, 0px)), -0.75rem, 4rem)
-      rotateY(var(--album-drag-rotation, 0deg)) scale(1.1);
+    transform: translate3d(calc(-50% + var(--album-drag-active, 0px)), -0.55rem, 4rem)
+      rotateY(var(--album-drag-rotation, 0deg)) scale(1.08);
   }
 
   .album-guess-item:not(.is-active) .album-guess-cover {

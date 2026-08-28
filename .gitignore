@@ -4,11 +4,14 @@
 .playwright-cli/
 .pytest_cache/
 .venv/
+.venv-workers/
+.wrangler/
 .ruff_cache/
 __pycache__/
 *.py[cod]
 *.sqlite3
 backend/data/
+backend/python_modules/
 dataset/cache/
 frontend/.astro/
 frontend/dist/

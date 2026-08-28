@@ -121,6 +121,11 @@ main {
   justify-self: center;
 }
 
+/* The final setup review is an information-rich screen, not a narrow form. */
+.game-shell:has(.setup-wizard.view-review) {
+  width: min(calc(100% - 2rem), 64rem);
+}
+
 .wrong-feedback-overlay {
   position: fixed;
   z-index: 120;
@@ -1718,6 +1723,9 @@ button[data-button-feedback="click"]::after {
   .game-shell {
     width: min(calc(100% - 2rem), 36rem);
   }
+  .game-shell:has(.setup-wizard.view-review) {
+    width: min(calc(100% - 3rem), 64rem);
+  }
   .listening-card,
   .guess-card {
     padding-top: 1.6rem;
@@ -1730,11 +1738,14 @@ button[data-button-feedback="click"]::after {
     place-items: start center;
     padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
+  .game-shell:has(.setup-wizard.view-review) {
+    width: min(calc(100% - 1rem), 64rem);
+  }
   main:has(.phase-revealed) {
     min-height: auto;
   }
   .brand-lockup {
-    margin-bottom: 1rem;
+    margin-bottom: 0.6rem;
   }
   .utility-icon-button {
     width: 2.25rem;
@@ -1801,14 +1812,17 @@ button[data-button-feedback="click"]::after {
   .phase-playing .round-answer-surface {
     order: 1;
   }
-  .phase-playing .listening-card {
-    order: 2;
-    margin-top: 0.5rem;
-    padding-top: 0.55rem;
+  .phase-playing .round-topline {
     padding-bottom: 0.35rem;
   }
+  .phase-playing .listening-card {
+    order: 2;
+    margin-top: 0.2rem;
+    padding-top: 0.3rem;
+    padding-bottom: 0.25rem;
+  }
   .phase-playing .clue-status {
-    min-height: 2.4rem;
+    min-height: 2.1rem;
     margin-bottom: 0.15rem;
   }
   .phase-playing .previous-guesses {
@@ -1819,8 +1833,8 @@ button[data-button-feedback="click"]::after {
     padding-bottom: 0.8rem;
   }
   .guess-card {
-    padding-top: 0.55rem;
-    padding-bottom: 0.75rem;
+    padding-top: 0.35rem;
+    padding-bottom: 0.45rem;
   }
   .guess-card .search-field input {
     min-height: 2.55rem;
