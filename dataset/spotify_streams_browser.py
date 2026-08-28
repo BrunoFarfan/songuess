@@ -16,6 +16,7 @@ import shutil
 import sqlite3
 import subprocess
 import tempfile
+import threading
 import unicodedata
 import urllib.parse
 from collections import Counter
@@ -358,6 +359,16 @@ def playwright_function(jobs: list[BrowserJob], workers: int, search_candidates:
   const queue = jobs.slice();
   const results = [];
   const failures = [];
+  let hydrationRequest = null;
+  let searchRequest = null;
+  const metrics = {{
+    directSearches: 0,
+    directSearchResponses: 0,
+    directSearchEmpty: 0,
+    navigatedSearches: 0,
+    directHydrations: 0,
+    navigatedHydrations: 0
+  }};
   const workerCount = Math.max(1, Math.min({workers}, jobs.length));
   const normalize = value => String(value || "")
     .normalize("NFKD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase()
@@ -391,10 +402,116 @@ def playwright_function(jobs: list[BrowserJob], workers: int, search_candidates:
     visit(payload);
     return match;
   }};
+  const trackUrls = (payload, limit) => {{
+    const urls = [];
+    const seen = new Set();
+    const visit = value => {{
+      if (urls.length >= limit || !value || typeof value !== "object") return;
+      if (typeof value.uri === "string" && value.uri.startsWith("spotify:track:")) {{
+        const id = value.uri.slice("spotify:track:".length);
+        if (id && !seen.has(id)) {{
+          seen.add(id);
+          urls.push("https://open.spotify.com/track/" + id);
+        }}
+      }}
+      for (const child of Object.values(value)) visit(child);
+    }};
+    visit(payload);
+    return urls;
+  }};
+  const operation = request => {{
+    if (!request.url().includes("api-partner.spotify.com/pathfinder/v2/query")) return null;
+    try {{ return request.postDataJSON()?.operationName || null; }}
+    catch {{ return null; }}
+  }};
+  const requestTemplate = async request => ({{
+    url: request.url(),
+    headers: await request.allHeaders(),
+    body: request.postDataJSON()
+  }});
+  const templatePost = async (workerPage, template, variables) => {{
+    const headers = {{ ...template.headers }};
+    for (const name of Object.keys(headers)) {{
+      if (name.startsWith(":") || name.startsWith("sec-") || [
+        "content-length", "host", "connection", "cookie", "accept-encoding",
+        "origin", "referer", "priority", "user-agent"
+      ].includes(name)) delete headers[name];
+    }}
+    const body = JSON.parse(JSON.stringify(template.body));
+    body.variables = {{ ...(body.variables || {{}}), ...variables }};
+    const result = await workerPage.evaluate(async request => {{
+      try {{
+        const response = await fetch(request.url, {{
+          method: "POST",
+          headers: request.headers,
+          body: JSON.stringify(request.body),
+          credentials: "include"
+        }});
+        return {{
+          ok: response.ok,
+          payload: response.ok ? await response.json() : null
+        }};
+      }} catch {{
+        return {{ ok: false, payload: null }};
+      }}
+    }}, {{ url: template.url, headers, body }});
+    return result?.ok ? result.payload : null;
+  }};
+  const searchTerm = searchUrl => {{
+    const encoded = new URL(searchUrl).pathname.split("/search/")[1]?.split("/tracks")[0];
+    return encoded ? decodeURIComponent(encoded) : "";
+  }};
+  const directSearch = async (workerPage, searchUrl, limit) => {{
+    if (!searchRequest) return null;
+    try {{
+      const response = await templatePost(workerPage, searchRequest, {{
+        searchTerm: searchTerm(searchUrl),
+        offset: 0,
+        limit: Math.max(limit, 5),
+        numberOfTopResults: Math.max(limit, 5)
+      }});
+      if (!response) return null;
+      metrics.directSearchResponses += 1;
+      const urls = trackUrls(response, limit);
+      if (!urls.length) {{
+        metrics.directSearchEmpty += 1;
+        return null;
+      }}
+      metrics.directSearches += 1;
+      return urls;
+    }} catch {{
+      return null;
+    }}
+  }};
+  const directHydrate = async (workerPage, trackId) => {{
+    if (!hydrationRequest) return null;
+    try {{
+      const response = await templatePost(workerPage, hydrationRequest, {{
+        uri: "spotify:track:" + trackId
+      }});
+      if (!response) return null;
+      const track = findTrack(response, "spotify:track:" + trackId);
+      if (!track) return null;
+      metrics.directHydrations += 1;
+      return {{ status: "complete", track }};
+    }} catch {{
+      return null;
+    }}
+  }};
   const hydrate = async (workerPage, spotifyUrl) => {{
     const trackId = spotifyUrl.split("/track/")[1]?.split("?")[0];
     if (!trackId) return {{ status: "invalid_spotify_url" }};
+    const direct = await directHydrate(workerPage, trackId);
+    if (direct) return direct;
     try {{
+      const requestPromise = workerPage.waitForRequest(request => {{
+        if (!request.url().includes("api-partner.spotify.com/pathfinder/v2/query")) return false;
+        try {{
+          const body = request.postDataJSON();
+          return body?.operationName === "getTrack"
+            && body?.variables?.uri === "spotify:track:" + trackId;
+        }} catch {{ return false; }}
+      }}, {{ timeout: 30000 }});
       const responsePromise = workerPage.waitForResponse(response => {{
         if (!response.url().includes("api-partner.spotify.com/pathfinder/v2/query")) return false;
         try {{
@@ -404,7 +521,9 @@ def playwright_function(jobs: list[BrowserJob], workers: int, search_candidates:
         }} catch {{ return false; }}
       }}, {{ timeout: 30000 }});
       await workerPage.goto(spotifyUrl, {{ waitUntil: "domcontentloaded", timeout: 45000 }});
-      const response = await responsePromise;
+      const [request, response] = await Promise.all([requestPromise, responsePromise]);
+      hydrationRequest = await requestTemplate(request);
+      metrics.navigatedHydrations += 1;
       if (!response.ok()) return {{ status: "spotify_http_" + response.status() }};
       const track = findTrack(await response.json(), "spotify:track:" + trackId);
       return track ? {{ status: "complete", track }} : {{ status: "no_playcount" }};
@@ -416,8 +535,20 @@ def playwright_function(jobs: list[BrowserJob], workers: int, search_candidates:
     const urls = [...job.spotify_urls];
     const candidateLimit = job.match_method === "exact_metadata" ? {search_candidates} : 1;
     for (const searchUrl of job.search_urls) {{
+      const direct = await directSearch(workerPage, searchUrl, candidateLimit);
+      if (direct) {{
+        for (const url of direct) if (!urls.includes(url)) urls.push(url);
+        continue;
+      }}
       try {{
+        const requestPromise = workerPage.waitForRequest(
+          request => operation(request) === "searchTracks",
+          {{ timeout: 30000 }}
+        );
         await workerPage.goto(searchUrl, {{ waitUntil: "domcontentloaded", timeout: 45000 }});
+        const request = await requestPromise;
+        if (!searchRequest) searchRequest = await requestTemplate(request);
+        metrics.navigatedSearches += 1;
         const trackLinks = workerPage.locator('a[href*="/track/"]');
         await trackLinks.first().waitFor({{ state: "attached", timeout: 10000 }});
         const found = await trackLinks.evaluateAll(
@@ -434,9 +565,7 @@ def playwright_function(jobs: list[BrowserJob], workers: int, search_candidates:
     const candidateTitle = normalize(track.name);
     if (job.match_method === "existing_url") return {{ ok: true, status: "complete" }};
     if (job.match_method === "isrc") {{
-      return {{ ok: expectedTitle === candidateTitle
-        || expectedTitle.startsWith(candidateTitle)
-        || candidateTitle.startsWith(expectedTitle), status: "title_mismatch" }};
+      return {{ ok: true, status: "complete" }};
     }}
     if (!(expectedTitle === candidateTitle
       || expectedTitle.startsWith(candidateTitle)
@@ -500,6 +629,18 @@ def playwright_function(jobs: list[BrowserJob], workers: int, search_candidates:
     candidates.sort((left, right) => right.stream_count - left.stream_count);
     results.push({{ song_id: job.song_id, ...candidates[0] }});
   }};
+  const seedSearchUrl = jobs.find(job => job.search_urls.length)?.search_urls[0];
+  if (seedSearchUrl) {{
+    try {{
+      const requestPromise = page.waitForRequest(
+        request => operation(request) === "searchTracks",
+        {{ timeout: 30000 }}
+      );
+      await page.goto(seedSearchUrl, {{ waitUntil: "domcontentloaded", timeout: 45000 }});
+      searchRequest = await requestTemplate(await requestPromise);
+      metrics.navigatedSearches += 1;
+    }} catch {{ /* Normal navigation remains available as a fallback. */ }}
+  }}
   const pages = [page];
   for (let index = 1; index < workerCount; index += 1) pages.push(await page.context().newPage());
   let completed = 0;
@@ -512,8 +653,42 @@ def playwright_function(jobs: list[BrowserJob], workers: int, search_candidates:
     }}
   }}));
   for (const workerPage of pages.slice(1)) await workerPage.close();
-  return {{ results, failures }};
+  return {{ results, failures, metrics }};
 }}"""
+
+
+def _parse_playwright_result(stdout: str) -> dict[str, Any]:
+    """Parse a raw result even when Playwright forwards progress console lines."""
+    try:
+        result = json.loads(stdout)
+    except json.JSONDecodeError as original_error:
+        result = None
+        decoder = json.JSONDecoder()
+        for index, character in enumerate(stdout):
+            if character != "{":
+                continue
+            try:
+                candidate, _end = decoder.raw_decode(stdout[index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict):
+                result = candidate
+                break
+        for line in reversed(stdout.splitlines()):
+            if result is not None:
+                break
+            try:
+                candidate = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict):
+                result = candidate
+                break
+        if result is None:
+            raise original_error
+    if not isinstance(result, dict):
+        raise TypeError("Spotify browser backfill returned an invalid result")
+    return result
 
 
 def run_playwright(
@@ -530,7 +705,9 @@ def run_playwright(
     if not browser_executable.exists():
         raise RuntimeError(f"Chromium browser executable not found: {browser_executable}")
     cli = str(playwright_cli)
-    session_name = f"sg-{os.getpid()}"
+    # Artist expansion can run multiple browser batches concurrently in one
+    # process. Thread identity keeps their Playwright daemon sessions isolated.
+    session_name = f"sg-{os.getpid()}-{threading.get_ident()}"
     subprocess_environment = {**os.environ, "TMPDIR": "/tmp"}
     seed_url = jobs[0].spotify_urls[0] if jobs[0].spotify_urls else jobs[0].search_urls[0]
     with tempfile.TemporaryDirectory(prefix="songuess-spotify-") as temporary:
@@ -583,10 +760,7 @@ def run_playwright(
             )
             if completed.returncode:
                 raise RuntimeError(f"Spotify browser backfill failed: {completed.stderr.strip()}")
-            result = json.loads(completed.stdout)
-            if not isinstance(result, dict):
-                raise TypeError("Spotify browser backfill returned an invalid result")
-            return result
+            return _parse_playwright_result(completed.stdout)
         finally:
             subprocess.run(
                 [*base, "close"],

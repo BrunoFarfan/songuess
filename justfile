@@ -20,7 +20,7 @@ d1-import-local file:
   cd backend && uv run pywrangler d1 execute songuess-local --local --file ../{{file}}
 
 # Export the enabled application catalog and deterministic manifest.
-export-d1 output="output/catalog.sql":
+export-d1 output="release/catalog.sql":
   uv run --project backend python -m dataset.export_d1 --output {{output}}
 
 # Run the complete Worker and static assets through workerd.

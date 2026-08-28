@@ -36,6 +36,9 @@ _APPLE_LAST_REQUEST = 0.0
 _LISTENBRAINZ_RADIO_LOCK = threading.Lock()
 _LISTENBRAINZ_RADIO_LAST_REQUEST = 0.0
 LISTENBRAINZ_RADIO_REQUEST_INTERVAL_SECONDS = 0.4
+_MUSICBRAINZ_LOCK = threading.Lock()
+_MUSICBRAINZ_LAST_REQUEST_STARTED = 0.0
+MUSICBRAINZ_REQUEST_INTERVAL_SECONDS = 1.05
 SPOTIFY_TRACK_URL_PATTERN = re.compile(
     r"^https://open\.spotify\.com/track/[A-Za-z0-9]{22}(?:\?.*)?$"
 )
@@ -52,11 +55,29 @@ def _request_headers(url: str, *, json_content: bool = False) -> dict[str, str]:
     return headers
 
 
+def _throttle_musicbrainz(url: str) -> None:
+    """Space MusicBrainz request starts globally without adding response time twice."""
+    if urllib.parse.urlparse(url).hostname != "musicbrainz.org":
+        return
+    global _MUSICBRAINZ_LAST_REQUEST_STARTED
+    with _MUSICBRAINZ_LOCK:
+        wait_seconds = max(
+            0.0,
+            _MUSICBRAINZ_LAST_REQUEST_STARTED
+            + MUSICBRAINZ_REQUEST_INTERVAL_SECONDS
+            - time.monotonic(),
+        )
+        if wait_seconds:
+            time.sleep(wait_seconds)
+        _MUSICBRAINZ_LAST_REQUEST_STARTED = time.monotonic()
+
+
 def read_json(url: str, *, timeout: float = 30) -> dict[str, Any]:
     request = urllib.request.Request(url, headers=_request_headers(url))
     last_error: Exception | None = None
     for attempt in range(6):
         try:
+            _throttle_musicbrainz(url)
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 body = response.read()
                 record_metric(_provider_name(url), "requests")
@@ -558,7 +579,7 @@ def fetch_musicbrainz_metadata(
     cache_dir: Path,
     candidates: list[dict[str, Any]],
     *,
-    batch_size: int = 20,
+    batch_size: int = 50,
     request_json: Callable[[str], dict[str, Any]] = read_json,
 ) -> dict[str, dict[str, Any]]:
     cache_path = cache_dir / "musicbrainz-recordings.sqlite3"
@@ -638,7 +659,7 @@ def fetch_musicbrainz_artist_countries(
     cache_dir: Path,
     recordings: dict[str, dict[str, Any]],
     *,
-    batch_size: int = 20,
+    batch_size: int = 50,
     request_json: Callable[[str], dict[str, Any]] = read_json,
 ) -> dict[str, list[str]]:
     """Return explicit MusicBrainz country codes for every credited artist per recording."""

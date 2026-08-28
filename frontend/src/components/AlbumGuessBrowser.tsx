@@ -39,9 +39,6 @@ export type AlbumGuessBrowserProps = {
 type AlbumItemStyle = CSSProperties & {
   "--album-order": number;
   "--album-depth": number;
-  "--album-drag": string;
-  "--album-drag-active": string;
-  "--album-drag-rotation": string;
   "--album-shelf-angle": string;
   "--album-shelf-mobile-angle": string;
   "--album-shelf-scale": number;
@@ -161,7 +158,6 @@ export default function AlbumGuessBrowser({
   onNeedIndex,
 }: AlbumGuessBrowserProps) {
   const [activeIndex, setActiveIndex] = useState(0);
-  const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const optionIdPrefix = useId();
   const cardRefs = useRef(new Map<number, HTMLButtonElement>());
@@ -360,10 +356,6 @@ export default function AlbumGuessBrowser({
       gesture.appliedDelta = liveDelta;
       moveBy(incrementalDelta);
     }
-    const consumedDistance = -liveDelta * SWIPE_STEP_DISTANCE;
-    const remainingDistance = distance - consumedDistance;
-    setDragOffset(Math.max(-SWIPE_STEP_DISTANCE, Math.min(SWIPE_STEP_DISTANCE, remainingDistance)));
-
     if (Math.abs(distance) >= SWIPE_MIN_DISTANCE) suppressClickRef.current = true;
   }
 
@@ -376,7 +368,6 @@ export default function AlbumGuessBrowser({
     const verticalDistance = finalY - gesture.startY;
     const elapsed = Math.max(event.timeStamp - gesture.startTime, 1);
     dragGestureRef.current = null;
-    setDragOffset(0);
     setIsDragging(false);
 
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
@@ -448,7 +439,6 @@ export default function AlbumGuessBrowser({
           role="listbox"
           aria-label={ariaLabel}
           aria-activedescendant={activeResult ? `${optionIdPrefix}-${activeResult.id}` : undefined}
-          style={{ "--album-drag": `${dragOffset}px` } as CSSProperties}
           onPointerDown={beginSwipe}
           onPointerMove={updateSwipe}
           onPointerUp={finishSwipe}
@@ -463,9 +453,6 @@ export default function AlbumGuessBrowser({
             const style: AlbumItemStyle = {
               "--album-order": position,
               "--album-depth": depth,
-              "--album-drag": `${dragOffset}px`,
-              "--album-drag-active": `${dragOffset}px`,
-              "--album-drag-rotation": `${dragOffset / -12}deg`,
               "--album-shelf-angle": `${side < 0 ? -68 : 68}deg`,
               "--album-shelf-mobile-angle": `${side < 0 ? -76 : 76}deg`,
               "--album-shelf-scale": 0.86,

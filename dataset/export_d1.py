@@ -7,7 +7,6 @@ import hashlib
 import json
 import sqlite3
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -180,13 +179,13 @@ def export_d1(database: Path, output: Path, manifest_path: Path | None = None) -
             statements.append(f"INSERT INTO {table} ({column_list}) VALUES\n{values};")
     statements.extend(["PRAGMA optimize;", ""])
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text("\n".join(statements), encoding="utf-8")
+    sql = "\n".join(statements)
+    output.write_text(sql, encoding="utf-8")
 
     manifest = {
-        "version": 1,
-        "generated_at": datetime.now(UTC).isoformat(),
-        "source_database": str(database.resolve()),
+        "version": 2,
         "catalog_sha256": _catalog_hash(table_rows),
+        "sql_sha256": hashlib.sha256(sql.encode("utf-8")).hexdigest(),
         "counts": {table: len(rows) for table, rows in table_rows.items()},
         "excludes": [
             "provider caches",
@@ -197,7 +196,7 @@ def export_d1(database: Path, output: Path, manifest_path: Path | None = None) -
             "spotify backfill failures",
         ],
     }
-    active_manifest = manifest_path or output.with_suffix(output.suffix + ".manifest.json")
+    active_manifest = manifest_path or output.with_suffix(".manifest.json")
     active_manifest.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
 

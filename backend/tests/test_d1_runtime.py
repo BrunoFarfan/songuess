@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -116,8 +117,9 @@ def test_full_d1_export_is_deterministic_and_application_only(tmp_path: Path) ->
 
     sql = first.read_text(encoding="utf-8")
     assert first.read_bytes() == second.read_bytes()
-    assert first_manifest["catalog_sha256"] == second_manifest["catalog_sha256"]
+    assert first_manifest == second_manifest
     assert first_manifest["counts"]["songs"] == 1
+    assert first_manifest["sql_sha256"] == hashlib.sha256(first.read_bytes()).hexdigest()
     assert "INSERT INTO song_genre_evidence" in sql
     assert "INSERT INTO song_search_fts" in sql
     assert "spotify_backfill_failures" not in sql
