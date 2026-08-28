@@ -17,7 +17,9 @@ permissions:
 
 jobs:
   migrate:
-    if: github.ref == 'refs/heads/main'
+    if: |
+      (github.ref == 'refs/heads/staging' && inputs.environment == 'preview') ||
+      (github.ref == 'refs/heads/production' && inputs.environment == 'production')
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     steps:

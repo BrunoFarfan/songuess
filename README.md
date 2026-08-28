@@ -272,12 +272,20 @@ The root Wrangler file documents the complete deployment; the backend mirror is 
 `pywrangler` resolves its project beside `backend/pyproject.toml`. Keep their deployment values in
 sync.
 
-Ordinary Worker deployment never migrates or replaces catalog data. `.github/workflows/ci.yml`
-runs backend tests, frontend tests, and the production build. The deployment and D1 migration
-workflows are manual, accept only `main`, and use GitHub environments so preview/production
-approval rules can be configured independently. `CLOUDFLARE_ACCOUNT_ID` is configured in GitHub;
-add a scoped `CLOUDFLARE_API_TOKEN` repository or environment secret before invoking a remote
-workflow.
+Ordinary Worker deployment never migrates or replaces catalog data. `staging` is the default
+integration branch: every push runs backend and frontend checks, then deploys the preview Worker.
+Production releases are pull requests from `staging` into the protected `production` branch; a
+successful push there deploys the production Worker. Preview deployments cancel stale runs, while
+production deployments run serially. The manual deployment workflow remains available for retries,
+but requires the selected Git ref and environment to match (`staging`/`preview` or
+`production`/`production`).
+
+D1 migrations and catalog imports remain explicit operations. The migration workflow uses the same
+branch/environment guard, and no deployment imports or replaces catalog data. GitHub Environments
+also restrict preview and production deployments to their matching branches.
+
+`CLOUDFLARE_ACCOUNT_ID` is configured in GitHub; add a scoped `CLOUDFLARE_API_TOKEN` repository or
+environment secret before invoking a remote workflow.
 
 The production Custom Domain is managed by Wrangler and Cloudflare automatically provisions its
 DNS record and certificate. Use Workers Logs and D1 query metadata to inspect errors, CPU time,

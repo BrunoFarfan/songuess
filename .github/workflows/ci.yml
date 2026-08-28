@@ -2,8 +2,9 @@ name: CI
 
 on:
   pull_request:
+    branches: [staging, production]
   push:
-    branches: [main]
+    branches: [staging, production]
 
 permissions:
   contents: read
@@ -42,3 +43,92 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm build
+
+  promotion-source:
+    name: production promotion source
+    if: github.event_name == 'pull_request' && github.base_ref == 'production'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require staging as the production source
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          if [ "$HEAD_BRANCH" != "staging" ]; then
+            echo "Production pull requests must come from staging."
+            exit 1
+          fi
+
+  deploy-preview:
+    name: deploy preview
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
+    runs-on: ubuntu-latest
+    environment: preview
+    concurrency:
+      group: songuess-deploy-preview
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.0.4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: uv sync --project backend --locked --dev
+      - run: uv run pywrangler sync
+        working-directory: backend
+      - run: pnpm install --dir frontend --frozen-lockfile
+      - run: pnpm --dir frontend build
+      - uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: backend
+          command: deploy --env preview
+
+  deploy-production:
+    name: deploy production
+    needs: [backend, frontend, promotion-source]
+    if: |
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/production' &&
+      needs.backend.result == 'success' &&
+      needs.frontend.result == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: songuess-deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.0.4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: uv sync --project backend --locked --dev
+      - run: uv run pywrangler sync
+        working-directory: backend
+      - run: pnpm install --dir frontend --frozen-lockfile
+      - run: pnpm --dir frontend build
+      - uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: backend
+          command: deploy --env production
