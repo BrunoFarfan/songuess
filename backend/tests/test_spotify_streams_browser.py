@@ -4,11 +4,23 @@ from dataset.populate import initialize_database
 from dataset.spotify_streams_browser import (
     BrowserJob,
     CatalogSong,
+    _parse_playwright_result,
     build_jobs,
     fetch_catalog_spotify_urls,
     persist_results,
     playwright_function,
 )
+
+
+def test_playwright_result_parser_ignores_progress_console_lines() -> None:
+    assert _parse_playwright_result(
+        "SONGUESS_PROGRESS 100/100\n"
+        "{\n"
+        '  "results": [],\n'
+        '  "failures": [],\n'
+        '  "metrics": {}\n'
+        "}\n"
+    ) == {"results": [], "failures": [], "metrics": {}}
 
 
 def _song(
@@ -84,9 +96,35 @@ def test_playwright_function_uses_web_hydration_without_replaying_tokens() -> No
     )
 
     assert "workerPage.goto(spotifyUrl" in function
+    assert "directHydrate" in function
+    assert "workerPage.evaluate" in function
+    assert 'credentials: "include"' in function
     assert 'operationName === "getTrack"' in function
     assert "authorization" not in function.casefold()
     assert "client-token" not in function.casefold()
+
+
+def test_playwright_function_trusts_exact_isrc_search_across_censored_titles() -> None:
+    function = playwright_function(
+        [
+            BrowserJob(
+                song_id=1,
+                title="Niggas in Paris",
+                artist="Kanye West & JAŸ-Z",
+                album="Watch the Throne",
+                credited_artists=("Kanye West", "JAŸ-Z"),
+                duration_ms=219_000,
+                match_method="isrc",
+                spotify_urls=(),
+                search_urls=("https://open.spotify.com/search/isrc%3AUSUM71111621/tracks",),
+            )
+        ],
+        workers=1,
+        search_candidates=3,
+    )
+
+    assert 'if (job.match_method === "isrc")' in function
+    assert 'return { ok: true, status: "complete" };' in function
 
 
 def test_catalog_fallback_requires_exact_structured_identity(monkeypatch) -> None:

@@ -7,6 +7,7 @@ import sqlite3
 import time
 from collections import Counter
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -312,10 +313,54 @@ def import_until_target(
             break
 
         chunk = candidates[start : start + batch_size]
+        artist_representatives: dict[str, dict[str, Any]] = {}
+
+        def candidate_artist_key(candidate: dict[str, Any]) -> str:
+            recording = metadata.get(candidate["recording_mbid"], {})
+            credited_artist = "".join(
+                credit.get("name", "") + credit.get("joinphrase", "")
+                for credit in recording.get("artist-credit", [])
+                if isinstance(credit, dict)
+            )
+            return (credited_artist or candidate.get("artist_name", "")).casefold()
+
+        for candidate in chunk:
+            artist_representatives.setdefault(candidate_artist_key(candidate), candidate)
+
+        def prefetch_artist(candidate: dict[str, Any]) -> None:
+            mbid = candidate["recording_mbid"]
+            search_apple_track(
+                cache_dir,
+                candidate,
+                metadata.get(mbid, {}),
+                country=country,
+                year_min=year_min,
+                year_max=year_max,
+            )
+
+        # Requests remain globally spaced by _throttle_apple; workers only overlap
+        # response latency, and one representative prevents duplicate artist searches.
+        with ThreadPoolExecutor(
+            max_workers=max(1, min(preview_workers, len(artist_representatives)))
+        ) as executor:
+            futures = {
+                executor.submit(prefetch_artist, candidate): artist_key
+                for artist_key, candidate in artist_representatives.items()
+            }
+            failed_artist_keys: set[str] = set()
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception:  # noqa: BLE001 - later runs retry uncached artists.
+                    failed_artist_keys.add(futures[future])
+
         apple_matches: list[dict[str, Any]] = []
         for rank, candidate in enumerate(chunk, start=start):
             progress.candidates_checked += 1
             mbid = candidate["recording_mbid"]
+            if candidate_artist_key(candidate) in failed_artist_keys:
+                progress.apple_failures += 1
+                continue
             try:
                 apple = search_apple_track(
                     cache_dir,

@@ -88,6 +88,10 @@ populate-manifest *args:
 refresh-catalog *args:
   cd .. && uv run --project backend python -m dataset.catalog_pipeline refresh {{args}}
 
+# Disable only fully checked songs with persistent Spotify identity mismatches.
+disable-streaming-failures *args:
+  cd .. && uv run --project backend python -m dataset.catalog_pipeline disable-streaming-failures {{args}}
+
 # Verify append-only preservation plus links, previews, identities, and counts.
 verify-pipeline *args:
   cd .. && uv run --project backend python -m dataset.catalog_pipeline verify {{args}}
@@ -107,6 +111,10 @@ discover-10000:
 # Append at most the next 1,000 validated songs from the approved 10k manifest.
 populate-next-1000:
   cd .. && uv run --project backend python -m dataset.catalog_pipeline populate --target-total 10000 --checkpoint-size 1000
+
+# Resumably populate to an explicit idempotent checkpoint boundary.
+populate-to checkpoint:
+  cd .. && uv run --project backend python -m dataset.catalog_pipeline populate --target-total 10000 --checkpoint-target {{checkpoint}}
 
 # Incrementally populate the first requested milestone.
 populate-5000:

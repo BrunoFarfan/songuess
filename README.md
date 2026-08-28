@@ -180,6 +180,7 @@ just compact-caches
 just cleanup-caches --apply
 just discover-10000                 # writes an inspectable ignored manifest
 just populate-next-1000             # one resumable checkpoint only
+just populate-to 6000               # resume an explicit idempotent boundary
 just refresh-catalog
 just verify-pipeline --target-total 10000
 just export-delta
