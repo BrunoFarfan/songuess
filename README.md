@@ -205,6 +205,28 @@ ListenBrainz windows and token-free direct-artist LB Radio expansion. A configur
 required. An insufficient manifest cannot be populated; increase the candidate or per-artist
 limits and rerun the `catalog_pipeline discover` operation before enrichment.
 
+### Existing-artist catalog expansion
+
+`dataset.artist_expansion` resumably expands only artists represented in the immutable 10,000-song
+baseline. Authenticated ListenBrainz top recordings provide the priority queue, canonical
+MusicBrainz studio discographies provide completeness, and Spotify web playcounts remain the sole
+acceptance and ranking metric. The pipeline excludes alternate versions by default, counts
+collaborations toward every canonical credited artist, applies a 200 million stream floor and a
+30-song artist cap, and preserves all baseline rows.
+
+Run it through the generic backend dataset command; for example:
+
+```bash
+cd backend
+just dataset artist_expansion status
+just dataset artist_expansion pipeline --target-total 20000
+```
+
+The versioned SQLite checkpoint records progress per artist and candidate, so the operation can be
+stopped and resumed without rebuilding completed work. Reports, provider caches, browser state and
+checkpoints remain ignored local artifacts. Use the Kanye pilot before changing the discovery
+algorithm or acceptance rules.
+
 ## Cloudflare Worker deployment
 
 Production uses one Python Worker. Requests under `/api/*` run through FastAPI and the request's
