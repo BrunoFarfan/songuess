@@ -188,11 +188,11 @@ describe("song search carousel query boundaries", () => {
     );
 
     expect(html).toContain("Mr. Brightside");
-    expect(html).toContain("Popularity score: 87 out of 100");
+    expect(html).not.toContain("Popularity score");
     expect(html).toContain("Pulling records…");
   });
 
-  it("marks a missing popularity snapshot as unavailable instead of zero", () => {
+  it("omits popularity from the carousel even when the snapshot is unavailable", () => {
     const html = renderToStaticMarkup(
       createElement(AlbumGuessBrowser, {
         results: [{ ...rankedResults[0], popularity_score: null }],
@@ -200,8 +200,8 @@ describe("song search carousel query boundaries", () => {
       }),
     );
 
-    expect(html).toContain("Popularity score unavailable");
-    expect(html).toContain("N/A");
+    expect(html).not.toContain("Popularity score");
+    expect(html).not.toContain("N/A");
   });
 });
 
@@ -292,6 +292,8 @@ describe("mobile album shelf gestures", () => {
 
   it("crosses record thresholds while the finger is still moving", () => {
     expect(swipeLiveTraversalDelta(-30)).toBe(0);
+    expect(swipeLiveTraversalDelta(-55)).toBe(0);
+    expect(swipeLiveTraversalDelta(-56)).toBe(1);
     expect(swipeLiveTraversalDelta(-70)).toBe(1);
     expect(swipeLiveTraversalDelta(-140)).toBe(2);
     expect(swipeLiveTraversalDelta(140)).toBe(-2);

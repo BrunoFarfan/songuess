@@ -9,7 +9,6 @@ import React, {
   useState,
 } from "react";
 
-import PopularityScore from "./PopularityScore";
 import "./AlbumGuessBrowser.css";
 
 export type AlbumGuessOption = {
@@ -53,10 +52,10 @@ type AlbumItemStyle = CSSProperties & {
 };
 
 const VISIBLE_ALBUM_COUNT = 11;
-const SWIPE_MIN_DISTANCE = 18;
-const SWIPE_MIN_VELOCITY = 0.18;
-const SWIPE_STEP_DISTANCE = 64;
-const SWIPE_PROJECTION_MS = 90;
+const SWIPE_MIN_DISTANCE = 14;
+const SWIPE_MIN_VELOCITY = 0.14;
+const SWIPE_STEP_DISTANCE = 56;
+const SWIPE_PROJECTION_MS = 72;
 const MAX_SWIPE_STEPS = 7;
 const SWIPE_AXIS_LOCK_DISTANCE = 8;
 const ALBUMS_EACH_SIDE = Math.floor(VISIBLE_ALBUM_COUNT / 2);
@@ -168,6 +167,7 @@ export default function AlbumGuessBrowser({
   const cardRefs = useRef(new Map<number, HTMLButtonElement>());
   const previousQueryRef = useRef("");
   const pendingActiveIndexRef = useRef<number | null>(null);
+  const activeIndexRef = useRef(0);
   const dragGestureRef = useRef<DragGesture | null>(null);
   const suppressClickRef = useRef(false);
   const onActiveChangeRef = useRef(onActiveChange);
@@ -182,6 +182,11 @@ export default function AlbumGuessBrowser({
   const excludedIndexSet = useMemo(() => new Set(excludedIndexes), [excludedIndexes]);
   const normalizedQuery = query.trim();
 
+  function updateActiveIndex(nextIndex: number) {
+    activeIndexRef.current = nextIndex;
+    setActiveIndex(nextIndex);
+  }
+
   useEffect(() => {
     onActiveChangeRef.current = onActiveChange;
   }, [onActiveChange]);
@@ -192,17 +197,17 @@ export default function AlbumGuessBrowser({
     if (previousQueryRef.current !== normalizedQuery) {
       previousQueryRef.current = normalizedQuery;
       pendingActiveIndexRef.current = null;
-      setActiveIndex(selectedIndex ?? results[0]?.searchIndex ?? 0);
+      updateActiveIndex(selectedIndex ?? results[0]?.searchIndex ?? 0);
       return;
     }
     const pendingActiveIndex = pendingActiveIndexRef.current;
     if (pendingActiveIndex !== null && resultByIndex.has(pendingActiveIndex)) {
       pendingActiveIndexRef.current = null;
-      setActiveIndex(pendingActiveIndex);
+      updateActiveIndex(pendingActiveIndex);
       return;
     }
     if (excludedIndexSet.has(activeIndex)) {
-      setActiveIndex(advanceAlbumIndex(activeIndex, 1, totalCount, excludedIndexSet));
+      updateActiveIndex(advanceAlbumIndex(activeIndex, 1, totalCount, excludedIndexSet));
     }
   }, [
     activeIndex,
@@ -244,7 +249,7 @@ export default function AlbumGuessBrowser({
 
   function moveBy(delta: number, focus = false) {
     if (totalCount <= excludedIndexSet.size) return;
-    const startingIndex = pendingActiveIndexRef.current ?? boundedActiveIndex;
+    const startingIndex = pendingActiveIndexRef.current ?? activeIndexRef.current;
     const nextIndex = advanceAlbumIndex(startingIndex, delta, totalCount, excludedIndexSet);
     const nextResult = resultByIndex.get(nextIndex);
     if (!nextResult) {
@@ -253,7 +258,7 @@ export default function AlbumGuessBrowser({
       return;
     }
     pendingActiveIndexRef.current = null;
-    setActiveIndex(nextIndex);
+    updateActiveIndex(nextIndex);
     if (focus) {
       window.requestAnimationFrame(() => cardRefs.current.get(nextIndex)?.focus());
     }
@@ -266,7 +271,7 @@ export default function AlbumGuessBrowser({
       void onNeedIndex?.(nextIndex);
       return;
     }
-    setActiveIndex(nextIndex);
+    updateActiveIndex(nextIndex);
     if (focus) window.requestAnimationFrame(() => cardRefs.current.get(nextIndex)?.focus());
   }
 
@@ -309,7 +314,8 @@ export default function AlbumGuessBrowser({
   }, [boundedActiveIndex, resultSignature, results, totalCount]);
 
   function beginSwipe(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.pointerType === "mouse") return;
+    if (!event.isPrimary) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
     dragGestureRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -346,6 +352,7 @@ export default function AlbumGuessBrowser({
       gesture.axis = Math.abs(distance) > Math.abs(verticalDistance) ? "horizontal" : "vertical";
     }
     if (gesture.axis !== "horizontal") return;
+    event.preventDefault();
 
     const liveDelta = swipeLiveTraversalDelta(distance);
     if (liveDelta !== gesture.appliedDelta) {
@@ -446,6 +453,7 @@ export default function AlbumGuessBrowser({
           onPointerMove={updateSwipe}
           onPointerUp={finishSwipe}
           onPointerCancel={(event) => finishSwipe(event, true)}
+          onLostPointerCapture={(event) => finishSwipe(event, true)}
         >
           {visibleResults.map(({ result, index, offset, position }) => {
             const depth = Math.abs(offset);
@@ -456,8 +464,8 @@ export default function AlbumGuessBrowser({
               "--album-order": position,
               "--album-depth": depth,
               "--album-drag": `${dragOffset}px`,
-              "--album-drag-active": `${dragOffset * 0.34}px`,
-              "--album-drag-rotation": `${dragOffset / -5}deg`,
+              "--album-drag-active": `${dragOffset}px`,
+              "--album-drag-rotation": `${dragOffset / -12}deg`,
               "--album-shelf-angle": `${side < 0 ? -68 : 68}deg`,
               "--album-shelf-mobile-angle": `${side < 0 ? -76 : 76}deg`,
               "--album-shelf-scale": 0.86,
@@ -559,10 +567,6 @@ export default function AlbumGuessBrowser({
               {activeResult.release_year}
             </small>
           )}
-          <PopularityScore
-            score={activeResult.popularity_score}
-            className="album-guess-popularity"
-          />
         </header>
       )}
     </section>
