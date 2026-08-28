@@ -146,10 +146,6 @@
   transform: translate3d(-50%, -1.25rem, 6rem) rotateY(0deg) scale(1.12);
 }
 
-.album-guess-browser.is-dragging .album-guess-item {
-  transition: none;
-}
-
 .album-guess-browser.is-dragging .album-guess-stage,
 .album-guess-browser.is-dragging .album-guess-cover {
   cursor: grabbing;
