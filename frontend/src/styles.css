@@ -1810,13 +1810,13 @@ button[data-button-feedback="click"]::after {
     flex-direction: column;
   }
   .phase-playing .round-answer-surface {
-    order: 1;
+    order: 2;
   }
   .phase-playing .round-topline {
     padding-bottom: 0.35rem;
   }
   .phase-playing .listening-card {
-    order: 2;
+    order: 1;
     margin-top: 0.2rem;
     padding-top: 0.3rem;
     padding-bottom: 0.25rem;

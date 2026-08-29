@@ -26,6 +26,8 @@ import "./VinylControls.css";
 const SNIPPET_DURATIONS = [1, 2, 4, 7, 11, 15] as const;
 const CURRENT_YEAR = new Date().getFullYear();
 const SEARCH_PAGE_SIZE = 40;
+const ROUND_PREFETCH_COUNT = 2;
+export const DEFAULT_VOLUME = 0.5;
 
 export function potentialPointsForAttempt(attempt: number): number {
   return Math.max(0, SNIPPET_DURATIONS.length - Math.max(0, attempt));
@@ -83,10 +85,37 @@ type FilterMetadata = {
   song_count: number;
 };
 
-type RoundResponse = {
+export type RoundResponse = {
   song_id: number;
   preview_url: string;
 };
+
+type MutableRef<T> = { current: T };
+
+export function shouldAutoOpenTutorial(
+  phase: Phase,
+  hasCheckedTutorial: boolean,
+  tutorialPending: boolean,
+): boolean {
+  return phase === "playing" && hasCheckedTutorial && tutorialPending;
+}
+
+export async function fillRoundPrefetchQueue(
+  queueRef: MutableRef<RoundResponse[]>,
+  excludedIdsRef: MutableRef<number[]>,
+  requestRound: (excludedIds: number[]) => Promise<RoundResponse | null>,
+  onExclusionsChange: (excludedIds: number[]) => void = () => undefined,
+  targetSize = ROUND_PREFETCH_COUNT,
+): Promise<void> {
+  while (queueRef.current.length < targetSize) {
+    const round = await requestRound([...excludedIdsRef.current]);
+    if (!round || excludedIdsRef.current.includes(round.song_id)) return;
+
+    queueRef.current = [...queueRef.current, round];
+    excludedIdsRef.current = [...excludedIdsRef.current, round.song_id];
+    onExclusionsChange(excludedIdsRef.current);
+  }
+}
 
 type SearchResult = {
   id: number;
@@ -148,13 +177,12 @@ export default function Game() {
   const [attempt, setAttempt] = useState(0);
   const [playbackCursor, setPlaybackCursor] = useState(0);
   const [previousGuesses, setPreviousGuesses] = useState<SearchResult[]>([]);
-  const [excludedSongIds, setExcludedSongIds] = useState<number[]>([]);
   const [outcome, setOutcome] = useState<RoundOutcome | null>(null);
   const [revealedSong, setRevealedSong] = useState<RevealedSong | null>(null);
   const [isRevealLoading, setIsRevealLoading] = useState(false);
   const [isRevealArmed, setIsRevealArmed] = useState(false);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
-  const [volume, setVolume] = useState(0.8);
+  const [volume, setVolume] = useState(DEFAULT_VOLUME);
   const [audioError, setAudioError] = useState("");
   const [appError, setAppError] = useState("");
   const [query, setQuery] = useState("");
@@ -170,12 +198,19 @@ export default function Game() {
   const [wrongFeedbackKey, setWrongFeedbackKey] = useState(0);
   const [isTutorialOpen, setIsTutorialOpen] = useState(false);
   const [hasCheckedTutorial, setHasCheckedTutorial] = useState(false);
+  const [isTutorialPending, setIsTutorialPending] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const revealButtonRef = useRef<HTMLButtonElement>(null);
   const utilityControlsRef = useRef<HTMLElement>(null);
   const utilityTriggerRef = useRef<HTMLButtonElement | null>(null);
   const roundGenerationRef = useRef(0);
+  const playlistGenerationRef = useRef(0);
+  const activeFiltersRef = useRef<Filters>(defaultFilters);
+  const excludedSongIdsRef = useRef<number[]>([]);
+  const prefetchedRoundsRef = useRef<RoundResponse[]>([]);
+  const prefetchPromiseRef = useRef<Promise<void> | null>(null);
+  const isAdvancingRoundRef = useRef(false);
   const recordedGenerationRef = useRef<number | null>(null);
   const roundHistoryRef = useRef<LocalRoundRecord[]>([]);
   const previousGuessesRef = useRef<SearchResult[]>([]);
@@ -199,12 +234,18 @@ export default function Game() {
 
   useEffect(() => {
     try {
-      setIsTutorialOpen(!hasSeenTutorial(window.localStorage));
+      setIsTutorialPending(!hasSeenTutorial(window.localStorage));
     } catch {
-      setIsTutorialOpen(true);
+      setIsTutorialPending(true);
     }
     setHasCheckedTutorial(true);
   }, []);
+
+  useEffect(() => {
+    if (!shouldAutoOpenTutorial(phase, hasCheckedTutorial, isTutorialPending)) return;
+    setIsTutorialPending(false);
+    setIsTutorialOpen(true);
+  }, [hasCheckedTutorial, isTutorialPending, phase]);
 
   useEffect(
     () => () => {
@@ -515,10 +556,7 @@ export default function Game() {
     }
   }
 
-  async function startRound(filters: Filters, idsToExclude = excludedSongIds) {
-    const generation = ++roundGenerationRef.current;
-    stopAudio(true);
-    setPhase("loading");
+  function resetRoundUi() {
     setAppError("");
     setAudioError("");
     setRevealedSong(null);
@@ -533,6 +571,59 @@ export default function Game() {
     setSearchTotalCount(0);
     setExcludedSearchIndexes([]);
     setIsRevealArmed(false);
+  }
+
+  function invalidatePrefetchedRounds() {
+    ++playlistGenerationRef.current;
+    prefetchedRoundsRef.current = [];
+    prefetchPromiseRef.current = null;
+  }
+
+  function ensurePrefetchedRounds(filters: Filters): Promise<void> {
+    if (prefetchPromiseRef.current) return prefetchPromiseRef.current;
+
+    const playlistGeneration = playlistGenerationRef.current;
+    let task: Promise<void>;
+    task = fillRoundPrefetchQueue(
+      prefetchedRoundsRef,
+      excludedSongIdsRef,
+      async (excludeIds) => {
+        try {
+          const response = await fetch("/api/round", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(createRoundRequest(filters, excludeIds)),
+          });
+          if (playlistGeneration !== playlistGenerationRef.current || !response.ok) return null;
+          return (await response.json()) as RoundResponse;
+        } catch {
+          return null;
+        }
+      },
+      () => undefined,
+    ).finally(() => {
+      if (prefetchPromiseRef.current === task) prefetchPromiseRef.current = null;
+    });
+    prefetchPromiseRef.current = task;
+    return task;
+  }
+
+  function activateRound(round: RoundResponse, filters: Filters) {
+    ++roundGenerationRef.current;
+    stopAudio(true);
+    resetRoundUi();
+    activeFiltersRef.current = filters;
+    setActiveFilters(filters);
+    setCurrentSongId(round.song_id);
+    setPreviewUrl(round.preview_url);
+    setPhase("playing");
+  }
+
+  async function startRound(filters: Filters, idsToExclude = excludedSongIdsRef.current) {
+    const generation = ++roundGenerationRef.current;
+    stopAudio(true);
+    setPhase("loading");
+    resetRoundUi();
 
     const requestRound = async (excludeIds: number[]) => {
       return fetch("/api/round", {
@@ -546,6 +637,7 @@ export default function Game() {
       let usedExclusions = idsToExclude;
       let response = await requestRound(usedExclusions);
       if (response.status === 404 && usedExclusions.length > 0) {
+        invalidatePrefetchedRounds();
         usedExclusions = [];
         response = await requestRound([]);
       }
@@ -556,17 +648,44 @@ export default function Game() {
       const round = (await response.json()) as RoundResponse;
       if (generation !== roundGenerationRef.current) return;
 
+      activeFiltersRef.current = filters;
       setActiveFilters(filters);
       setCurrentSongId(round.song_id);
       setPreviewUrl(round.preview_url);
-      setExcludedSongIds([...usedExclusions, round.song_id]);
+      const nextExclusions = [...usedExclusions, round.song_id];
+      excludedSongIdsRef.current = nextExclusions;
       setPhase("playing");
+      void ensurePrefetchedRounds(filters);
     } catch (error) {
       if (generation !== roundGenerationRef.current) return;
       setCurrentSongId(null);
       setPreviewUrl("");
       setAppError(error instanceof Error ? error.message : "Could not begin a new round.");
       setPhase("setup");
+    }
+  }
+
+  async function startNextRound() {
+    if (isAdvancingRoundRef.current) return;
+    isAdvancingRoundRef.current = true;
+    const playlistGeneration = playlistGenerationRef.current;
+    try {
+      if (prefetchedRoundsRef.current.length === 0 && prefetchPromiseRef.current) {
+        await prefetchPromiseRef.current;
+      }
+      if (playlistGeneration !== playlistGenerationRef.current) return;
+
+      const [nextRound, ...remainingRounds] = prefetchedRoundsRef.current;
+      if (!nextRound) {
+        await startRound(activeFiltersRef.current);
+        return;
+      }
+
+      prefetchedRoundsRef.current = remainingRounds;
+      activateRound(nextRound, activeFiltersRef.current);
+      void ensurePrefetchedRounds(activeFiltersRef.current);
+    } finally {
+      isAdvancingRoundRef.current = false;
     }
   }
 
@@ -580,6 +699,8 @@ export default function Game() {
       return;
     }
     setDraftFilters(filters);
+    invalidatePrefetchedRounds();
+    excludedSongIdsRef.current = [];
     void startRound(filters, []);
   }
 
@@ -769,6 +890,7 @@ export default function Game() {
 
   function changeFilters() {
     ++roundGenerationRef.current;
+    invalidatePrefetchedRounds();
     stopAudio(true);
     setIsRevealArmed(false);
     setDraftFilters(activeFilters);
@@ -836,27 +958,29 @@ export default function Game() {
               </button>
             </>
           )}
-          <button
-            className="utility-icon-button tutorial-info-button"
-            type="button"
-            aria-label="How to play"
-            aria-expanded={isTutorialOpen}
-            aria-haspopup="dialog"
-            onClick={(event) => {
-              utilityTriggerRef.current = event.currentTarget;
-              setOpenUtilityPanel(null);
-              setIsTutorialOpen(true);
-            }}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="12" r="8" />
-              <path d="M12 11v5M12 8h.01" />
-            </svg>
-          </button>
+          {(phase === "playing" || phase === "revealed") && (
+            <button
+              className="utility-icon-button tutorial-info-button"
+              type="button"
+              aria-label="How to play"
+              aria-expanded={isTutorialOpen}
+              aria-haspopup="dialog"
+              onClick={(event) => {
+                utilityTriggerRef.current = event.currentTarget;
+                setOpenUtilityPanel(null);
+                setIsTutorialOpen(true);
+              }}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="8" />
+                <path d="M12 11v5M12 8h.01" />
+              </svg>
+            </button>
+          )}
         </nav>
       </header>
 
-      {hasCheckedTutorial && isTutorialOpen && (
+      {hasCheckedTutorial && isTutorialOpen && (phase === "playing" || phase === "revealed") && (
         <Tutorial
           onDismiss={() => {
             setIsTutorialOpen(false);
@@ -865,7 +989,7 @@ export default function Game() {
         />
       )}
 
-      <audio ref={audioRef} src={previewUrl || undefined} preload="metadata" />
+      <audio ref={audioRef} src={previewUrl || undefined} preload="auto" />
 
       {wrongFeedbackKey > 0 && (
         <div
@@ -1007,7 +1131,7 @@ export default function Game() {
                         type="button"
                         onClick={
                           phase === "revealed"
-                            ? () => void startRound(activeFilters)
+                            ? () => void startNextRound()
                             : () => advanceAttempt({ resumePlayback: true, preserveSearch: true })
                         }
                       >

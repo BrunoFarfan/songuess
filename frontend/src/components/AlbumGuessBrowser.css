@@ -479,6 +479,13 @@
     transform: translate3d(-50%, -0.55rem, 4rem) rotateY(0deg) scale(1.08);
   }
 
+  /* Keep the sleeves visibly behind the selected jacket. On narrow screens the
+     steeper perspective otherwise lets their planes intersect the front cover. */
+  .album-guess-item:not(.is-active) {
+    transform: translate3d(calc(-50% + var(--album-shelf-mobile-x)), var(--album-shelf-y), -4rem)
+      rotateY(var(--album-shelf-mobile-angle)) scale(var(--album-shelf-scale));
+  }
+
   .album-guess-item:not(.is-active) .album-guess-cover {
     border-color: rgba(244, 239, 229, 0.42);
     box-shadow:
