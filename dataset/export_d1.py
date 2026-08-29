@@ -24,6 +24,10 @@ APPLICATION_COLUMNS: dict[str, tuple[str, ...]] = {
         "album",
         "release_year",
         "popularity_score",
+        "stream_count",
+        "stream_count_fetched_at",
+        "stream_count_source",
+        "stream_count_status",
         "musicbrainz_id",
         "apple_track_id",
         "preview_url",
@@ -31,6 +35,8 @@ APPLICATION_COLUMNS: dict[str, tuple[str, ...]] = {
         "apple_music_url",
         "spotify_url",
         "enabled",
+        "apple_explicitness",
+        "apple_explicitness_checked_at",
     ),
     "artists": ("id", "musicbrainz_id", "name", "sort_name", "disambiguation"),
     "genres": ("id", "name"),
@@ -70,6 +76,20 @@ DERIVED_SEARCH_COLUMNS: dict[str, tuple[str, ...]] = {
 }
 
 INSERT_BATCH_SIZE = 50
+REPLACEMENT_DELETE_ORDER = (
+    "artist_search_fts",
+    "artist_search_aliases",
+    "song_search_fts",
+    "song_search",
+    "song_genre_evidence",
+    "song_countries",
+    "song_genres",
+    "song_artists",
+    "songs",
+    "countries",
+    "genres",
+    "artists",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -168,6 +188,7 @@ def export_d1(database: Path, output: Path, manifest_path: Path | None = None) -
     # Wrangler's remote D1 bulk importer provides the transaction boundary and
     # rejects explicit BEGIN/COMMIT statements in uploaded SQL files.
     statements = ["PRAGMA foreign_keys = ON;"]
+    statements.extend(f"DELETE FROM {table};" for table in REPLACEMENT_DELETE_ORDER)
     for table, columns in {**APPLICATION_COLUMNS, **DERIVED_SEARCH_COLUMNS}.items():
         column_list = ", ".join(columns)
         rows = table_rows[table]
@@ -187,6 +208,16 @@ def export_d1(database: Path, output: Path, manifest_path: Path | None = None) -
         "catalog_sha256": _catalog_hash(table_rows),
         "sql_sha256": hashlib.sha256(sql.encode("utf-8")).hexdigest(),
         "counts": {table: len(rows) for table, rows in table_rows.items()},
+        "quality": {
+            "apple_explicit": sum(
+                row[APPLICATION_COLUMNS["songs"].index("apple_explicitness")] == "explicit"
+                for row in table_rows["songs"]
+            ),
+            "apple_cleaned": sum(
+                row[APPLICATION_COLUMNS["songs"].index("apple_explicitness")] == "cleaned"
+                for row in table_rows["songs"]
+            ),
+        },
         "excludes": [
             "provider caches",
             "browser telemetry",

@@ -291,6 +291,7 @@ def test_apple_clean_track_resolves_structured_explicit_alternate() -> None:
         "trackExplicitness": "cleaned",
         "trackTimeMillis": 274_192,
         "releaseDate": "2024-05-04T00:00:00Z",
+        "collectionName": "Not Like Us - Single",
         "trackViewUrl": "https://music.apple.com/us/album/not-like-us/10?i=11",
     }
     page = (
@@ -304,12 +305,18 @@ def test_apple_clean_track_resolves_structured_explicit_alternate() -> None:
         "previewUrl": "https://preview/explicit",
         "trackViewUrl": "https://music.apple.com/us/album/not-like-us/20?i=21",
     }
+    compilation = {
+        **explicit,
+        "trackId": 22,
+        "collectionName": "Rap Hits 2024",
+        "trackViewUrl": "https://music.apple.com/us/album/rap-hits/30?i=22",
+    }
 
     selected = clients.find_explicit_apple_equivalent(
         clean,
         country="US",
         request_text=lambda _url: page,
-        request_json=lambda _url: {"results": [explicit]},
+        request_json=lambda _url: {"results": [compilation, explicit]},
     )
 
     assert selected is not None
@@ -371,7 +378,10 @@ def test_explicit_backfill_replaces_clean_provider_fields_idempotently(
     clean_match["apple"]["trackExplicitness"] = "cleaned"
     write_catalog(database, [clean_match], {})
     with sqlite3.connect(database) as connection:
-        connection.execute("UPDATE songs SET apple_explicitness_checked_at = NULL")
+        assert (
+            connection.execute("SELECT apple_explicitness_checked_at FROM songs").fetchone()[0]
+            is None
+        )
     explicit = {
         **clean_match["apple"],
         "trackId": 20,
