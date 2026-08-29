@@ -78,13 +78,6 @@ export const SETUP_PRESETS: readonly SetupPreset[] = [
     popularity: [80, 100],
   },
   {
-    id: "classical-essentials",
-    title: "Classical Essentials",
-    subtitle: "Composers and cornerstone works",
-    genres: ["classical"],
-    popularity: [80, 100],
-  },
-  {
     id: "80s-greatest-hits",
     title: "80s Greatest Hits",
     subtitle: "Big choruses, bigger production",

@@ -14,13 +14,89 @@ import VinylSleeveReveal from "./VinylSleeveReveal";
 import {
   countryFlag,
   createRoundRequest,
+  DEFAULT_VOLUME,
   excludeWrongGuess,
+  fillRoundPrefetchQueue,
   PersonalStatistics,
   PotentialPoints,
   potentialPointsForAttempt,
   filterCountryOptions,
+  shouldAutoOpenTutorial,
+  type RoundResponse,
   type CountryOption,
 } from "./Game";
+
+describe("playing defaults", () => {
+  it("starts playback at half volume", () => {
+    expect(DEFAULT_VOLUME).toBe(0.5);
+  });
+
+  it("waits to auto-open the tutorial until the first round is playable", () => {
+    expect(shouldAutoOpenTutorial("setup", true, true)).toBe(false);
+    expect(shouldAutoOpenTutorial("loading", true, true)).toBe(false);
+    expect(shouldAutoOpenTutorial("playing", false, true)).toBe(false);
+    expect(shouldAutoOpenTutorial("playing", true, false)).toBe(false);
+    expect(shouldAutoOpenTutorial("playing", true, true)).toBe(true);
+  });
+});
+
+describe("round prefetch queue", () => {
+  it("fetches two unique future rounds with progressive exclusions", async () => {
+    const queueRef = { current: [] as RoundResponse[] };
+    const excludedIdsRef = { current: [10] };
+    const requests: number[][] = [];
+    const rounds = [
+      { song_id: 20, preview_url: "https://example.com/20.m4a" },
+      { song_id: 30, preview_url: "https://example.com/30.m4a" },
+    ];
+
+    await fillRoundPrefetchQueue(queueRef, excludedIdsRef, async (excludedIds) => {
+      requests.push(excludedIds);
+      return rounds.shift() ?? null;
+    });
+
+    expect(requests).toEqual([[10], [10, 20]]);
+    expect(queueRef.current.map(({ song_id }) => song_id)).toEqual([20, 30]);
+    expect(excludedIdsRef.current).toEqual([10, 20, 30]);
+  });
+
+  it("preserves a consumed queue while its next request is in flight", async () => {
+    const queueRef = {
+      current: [{ song_id: 20, preview_url: "https://example.com/20.m4a" }],
+    };
+    const excludedIdsRef = { current: [10, 20] };
+    let resolveRound!: (round: RoundResponse | null) => void;
+    const pendingRound = new Promise<RoundResponse | null>((resolve) => {
+      resolveRound = resolve;
+    });
+    const fillPromise = fillRoundPrefetchQueue(
+      queueRef,
+      excludedIdsRef,
+      () => pendingRound,
+      () => undefined,
+      2,
+    );
+
+    queueRef.current = [];
+    resolveRound({ song_id: 30, preview_url: "https://example.com/30.m4a" });
+    await fillPromise;
+
+    expect(queueRef.current.map(({ song_id }) => song_id)).toEqual([30]);
+  });
+
+  it("stops rather than queueing a duplicate returned by the API", async () => {
+    const queueRef = { current: [] as RoundResponse[] };
+    const excludedIdsRef = { current: [10] };
+
+    await fillRoundPrefetchQueue(queueRef, excludedIdsRef, async () => ({
+      song_id: 10,
+      preview_url: "https://example.com/10.m4a",
+    }));
+
+    expect(queueRef.current).toEqual([]);
+    expect(excludedIdsRef.current).toEqual([10]);
+  });
+});
 
 describe("personal statistics history", () => {
   it("expands recent rounds by default", () => {
@@ -424,13 +500,6 @@ describe("curated preset semantics", () => {
         subtitle: "Hooks from 2000 onward",
         genres: ["pop"],
         year: [2000, new Date().getFullYear()],
-        popularity: [80, 100],
-      },
-      {
-        id: "classical-essentials",
-        title: "Classical Essentials",
-        subtitle: "Composers and cornerstone works",
-        genres: ["classical"],
         popularity: [80, 100],
       },
       {

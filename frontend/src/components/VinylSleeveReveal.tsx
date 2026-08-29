@@ -148,40 +148,38 @@ export default function VinylSleeveReveal({
               {song.genres && song.genres.length > 0 && (
                 <span className="vinyl-sleeve-reveal__genres">{song.genres.join(" · ")}</span>
               )}
-              {(song.apple_music_url || song.spotify_url) && (
-                <nav
-                  className="vinyl-sleeve-reveal__streaming-links"
-                  aria-label="Listen to this song"
-                >
-                  {song.apple_music_url && (
-                    <a
-                      className="is-apple-music"
-                      href={song.apple_music_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <span aria-hidden="true">♪</span>
-                      Listen on Apple Music
-                    </a>
-                  )}
-                  {song.spotify_url && (
-                    <a
-                      className="is-spotify"
-                      href={song.spotify_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M5 8.2c4.7-1.4 9.8-1 14 .9" />
-                        <path d="M6.1 12c3.9-1 8.2-.7 11.7.8" />
-                        <path d="M7.2 15.7c3.1-.7 6.4-.4 9.2.8" />
-                      </svg>
-                      Listen on Spotify
-                    </a>
-                  )}
-                </nav>
-              )}
             </div>
+          )}
+
+          {song && (song.apple_music_url || song.spotify_url) && (
+            <nav className="vinyl-sleeve-reveal__streaming-links" aria-label="Listen to this song">
+              {song.apple_music_url && (
+                <a
+                  className="is-apple-music"
+                  href={song.apple_music_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span aria-hidden="true">♪</span>
+                  Listen on Apple Music
+                </a>
+              )}
+              {song.spotify_url && (
+                <a
+                  className="is-spotify"
+                  href={song.spotify_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M5 8.2c4.7-1.4 9.8-1 14 .9" />
+                    <path d="M6.1 12c3.9-1 8.2-.7 11.7.8" />
+                    <path d="M7.2 15.7c3.1-.7 6.4-.4 9.2.8" />
+                  </svg>
+                  Listen on Spotify
+                </a>
+              )}
+            </nav>
           )}
         </div>
       )}

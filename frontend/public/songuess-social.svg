@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title description">
+  <title id="title">Songuess — Name that song</title>
+  <desc id="description">An analog record sleeve design with the Songuess wordmark and a vinyl record.</desc>
+  <defs>
+    <radialGradient id="paper" cx="48%" cy="43%" r="82%">
+      <stop offset="0" stop-color="#211c19"/>
+      <stop offset="0.58" stop-color="#111210"/>
+      <stop offset="1" stop-color="#080908"/>
+    </radialGradient>
+    <radialGradient id="vinyl" cx="38%" cy="31%" r="72%">
+      <stop offset="0" stop-color="#20211e"/>
+      <stop offset="0.38" stop-color="#0c0d0c"/>
+      <stop offset="1" stop-color="#020302"/>
+    </radialGradient>
+    <filter id="grain" x="-20%" y="-20%" width="140%" height="140%">
+      <feTurbulence baseFrequency="0.72" numOctaves="4" seed="17" type="fractalNoise"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.11"/>
+      </feComponentTransfer>
+    </filter>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#000" flood-opacity="0.52"/>
+    </filter>
+    <clipPath id="record-clip"><circle cx="930" cy="337" r="246"/></clipPath>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#paper)"/>
+  <g fill="none" stroke="#f4efe5" stroke-opacity="0.07" stroke-width="1">
+    <circle cx="600" cy="315" r="78"/>
+    <circle cx="600" cy="315" r="118"/>
+    <circle cx="600" cy="315" r="158"/>
+    <circle cx="600" cy="315" r="198"/>
+    <circle cx="600" cy="315" r="238"/>
+    <circle cx="600" cy="315" r="278"/>
+    <circle cx="600" cy="315" r="318"/>
+    <circle cx="600" cy="315" r="358"/>
+    <circle cx="600" cy="315" r="398"/>
+    <circle cx="600" cy="315" r="438"/>
+    <circle cx="600" cy="315" r="478"/>
+    <circle cx="600" cy="315" r="518"/>
+    <circle cx="600" cy="315" r="558"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="710" y="110" width="380" height="380" fill="#321b17" stroke="#ff6547" stroke-width="4" transform="translate(15 15)"/>
+    <circle cx="930" cy="337" r="246" fill="url(#vinyl)" stroke="#d2cec4" stroke-width="7"/>
+    <g clip-path="url(#record-clip)" fill="none" stroke="#f4efe5" stroke-opacity="0.12">
+      <circle cx="930" cy="337" r="225" stroke-width="2"/>
+      <circle cx="930" cy="337" r="215"/>
+      <circle cx="930" cy="337" r="204"/>
+      <circle cx="930" cy="337" r="192"/>
+      <circle cx="930" cy="337" r="179"/>
+      <circle cx="930" cy="337" r="166"/>
+      <circle cx="930" cy="337" r="153"/>
+      <circle cx="930" cy="337" r="140"/>
+      <circle cx="930" cy="337" r="127"/>
+      <circle cx="930" cy="337" r="114"/>
+    </g>
+    <circle cx="930" cy="337" r="82" fill="#ff6547"/>
+    <circle cx="930" cy="337" r="61" fill="none" stroke="#ff8a72" stroke-width="2" opacity="0.65"/>
+    <circle cx="930" cy="337" r="10" fill="#090a09"/>
+  </g>
+
+  <g fill="#f4efe5">
+    <text x="82" y="135" font-family="Georgia, 'Times New Roman', serif" font-size="72" font-weight="700" letter-spacing="-3">Songuess<tspan fill="#ff6547">.</tspan></text>
+    <text x="87" y="258" fill="#ff6547" font-family="Arial, sans-serif" font-size="23" font-weight="700" letter-spacing="5">DROP THE NEEDLE</text>
+    <text x="82" y="352" font-family="Georgia, 'Times New Roman', serif" font-size="78" font-weight="700" letter-spacing="-2">Name that song.</text>
+    <text x="87" y="409" fill="#aaa59d" font-family="Arial, sans-serif" font-size="26" font-weight="600">Hear a little more, one guess at a time.</text>
+  </g>
+
+  <line x1="85" y1="480" x2="555" y2="480" stroke="#f4efe5" stroke-opacity="0.24"/>
+  <g transform="translate(85 508)">
+    <polygon points="0,0 7,18 27,18 11,29 17,48 0,37 -17,48 -11,29 -27,18 -7,18" fill="#ff6547"/>
+    <polygon points="54,0 61,18 81,18 65,29 71,48 54,37 37,48 43,29 27,18 47,18" fill="#ff6547"/>
+    <polygon points="108,0 115,18 135,18 119,29 125,48 108,37 91,48 97,29 81,18 101,18" fill="#ff6547"/>
+    <polygon points="162,0 169,18 189,18 173,29 179,48 162,37 145,48 151,29 135,18 155,18" fill="#ff6547"/>
+    <polygon points="216,0 223,18 243,18 227,29 233,48 216,37 199,48 205,29 189,18 209,18" fill="#ff6547"/>
+  </g>
+  <rect width="1200" height="630" filter="url(#grain)" opacity="0.48"/>
+</svg>
