@@ -1,20 +1,24 @@
 {
   "version": 2,
-  "catalog_sha256": "a97c6badc44a48a8da6ec548d850155655f84ccb10de91bcacf4743c8d4e73e4",
-  "sql_sha256": "0e2a6d3f5554389d2fe1d9e7d5ad2c37604deb445ea44fa60b2b7f5a8e9d3257",
+  "catalog_sha256": "4b2bdbd5d0504e0d7b9d55fe91429d7e5d9501a91b48b805630ea74c44774af7",
+  "sql_sha256": "a903b9fb847ed26075e535e85bf98150eff34bbf4cac3a93014da87fce9188c4",
   "counts": {
-    "songs": 10619,
+    "songs": 10617,
     "artists": 1377,
     "genres": 18,
     "countries": 44,
-    "song_artists": 11432,
-    "song_genres": 14629,
-    "song_countries": 10133,
-    "song_genre_evidence": 14629,
-    "song_search": 10619,
-    "song_search_fts": 10619,
+    "song_artists": 11428,
+    "song_genres": 14627,
+    "song_countries": 10131,
+    "song_genre_evidence": 14627,
+    "song_search": 10617,
+    "song_search_fts": 10617,
     "artist_search_aliases": 1464,
     "artist_search_fts": 1464
+  },
+  "quality": {
+    "apple_explicit": 898,
+    "apple_cleaned": 89
   },
   "excludes": [
     "provider caches",

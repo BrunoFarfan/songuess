@@ -91,9 +91,13 @@ def test_full_d1_export_is_deterministic_and_application_only(tmp_path: Path) ->
     with sqlite3.connect(database) as connection:
         connection.execute(
             "INSERT INTO songs (id, title, artist, release_year, popularity_score, "
-            "musicbrainz_id, apple_track_id, preview_url, enabled) "
-            "VALUES (1, 'Song', 'Artist', 2000, 50, 'recording', 'apple', "
-            "'https://audio/1', 1)"
+            "stream_count, stream_count_fetched_at, stream_count_source, "
+            "stream_count_status, musicbrainz_id, apple_track_id, preview_url, "
+            "enabled, apple_explicitness, apple_explicitness_checked_at) "
+            "VALUES (1, 'Song', 'Artist', 2000, 50, 123456, "
+            "'2026-08-28T00:00:00Z', 'spotify_web_hydration', 'complete', "
+            "'recording', 'apple', 'https://audio/1', 1, 'explicit', "
+            "'2026-08-28T00:00:00Z')"
         )
         connection.execute(
             "INSERT INTO artists (id, musicbrainz_id, name) VALUES (1, 'artist', 'Artist')"
@@ -119,6 +123,7 @@ def test_full_d1_export_is_deterministic_and_application_only(tmp_path: Path) ->
     assert first.read_bytes() == second.read_bytes()
     assert first_manifest == second_manifest
     assert first_manifest["counts"]["songs"] == 1
+    assert first_manifest["quality"] == {"apple_explicit": 1, "apple_cleaned": 0}
     assert first_manifest["sql_sha256"] == hashlib.sha256(first.read_bytes()).hexdigest()
     assert "INSERT INTO song_genre_evidence" in sql
     assert "INSERT INTO song_search_fts" in sql
@@ -128,5 +133,9 @@ def test_full_d1_export_is_deterministic_and_application_only(tmp_path: Path) ->
     initialize_database(destination)
     with sqlite3.connect(destination) as connection:
         connection.executescript(sql)
+        connection.executescript(sql)
         assert connection.execute("SELECT COUNT(*) FROM songs").fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT stream_count, stream_count_source, apple_explicitness FROM songs"
+        ).fetchone() == (123456, "spotify_web_hydration", "explicit")
         assert connection.execute("SELECT COUNT(*) FROM song_search_fts").fetchone()[0] == 1
