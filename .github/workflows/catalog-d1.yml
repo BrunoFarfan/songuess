@@ -1,0 +1,85 @@
+name: Replace D1 catalog
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: D1 environment to update
+        required: true
+        type: choice
+        options:
+          - preview
+          - production
+        default: preview
+      operation:
+        description: Verify only, or replace from the committed release seed
+        required: true
+        type: choice
+        options:
+          - verify
+          - replace
+        default: verify
+
+permissions:
+  contents: read
+
+jobs:
+  catalog:
+    if: |
+      (github.ref == 'refs/heads/staging' && inputs.environment == 'preview') ||
+      (github.ref == 'refs/heads/production' && inputs.environment == 'production')
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: songuess-catalog-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DATABASE_NAME: songuess-${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Record recovery point
+        if: inputs.operation == 'replace'
+        working-directory: backend
+        run: npx --yes wrangler d1 time-travel info "$DATABASE_NAME" --env "${{ inputs.environment }}"
+
+      - name: Apply schema migrations
+        if: inputs.operation == 'replace'
+        working-directory: backend
+        run: npx --yes wrangler d1 migrations apply "$DATABASE_NAME" --remote --env "${{ inputs.environment }}"
+
+      - name: Replace application catalog
+        if: inputs.operation == 'replace'
+        working-directory: backend
+        run: npx --yes wrangler d1 execute "$DATABASE_NAME" --remote --env "${{ inputs.environment }}" --file ../release/catalog.sql --yes
+
+      - name: Verify catalog manifest and provider links
+        working-directory: backend
+        run: |
+          expected_songs=$(jq -r '.counts.songs' ../release/catalog.manifest.json)
+          expected_search=$(jq -r '.counts.song_search' ../release/catalog.manifest.json)
+          expected_cleaned=$(jq -r '.quality.apple_cleaned' ../release/catalog.manifest.json)
+          result=$(npx --yes wrangler d1 execute "$DATABASE_NAME" --remote --env "${{ inputs.environment }}" --json --command "SELECT COUNT(*) AS songs, SUM(CASE WHEN apple_music_url IS NOT NULL AND trim(apple_music_url) <> '' THEN 1 ELSE 0 END) AS apple_links, SUM(CASE WHEN spotify_url IS NOT NULL AND trim(spotify_url) <> '' THEN 1 ELSE 0 END) AS spotify_links, SUM(CASE WHEN popularity_score IS NOT NULL THEN 1 ELSE 0 END) AS scored, SUM(CASE WHEN stream_count IS NOT NULL AND stream_count_source = 'spotify_web_hydration' THEN 1 ELSE 0 END) AS spotify_counts, SUM(CASE WHEN apple_explicitness = 'cleaned' THEN 1 ELSE 0 END) AS cleaned, (SELECT COUNT(*) FROM song_search) AS search_rows, (SELECT COUNT(*) FROM song_search_fts) AS fts_rows FROM songs;" )
+          actual_songs=$(jq -r '.[0].results[0].songs' <<<"$result")
+          apple_links=$(jq -r '.[0].results[0].apple_links' <<<"$result")
+          spotify_links=$(jq -r '.[0].results[0].spotify_links' <<<"$result")
+          scored=$(jq -r '.[0].results[0].scored' <<<"$result")
+          spotify_counts=$(jq -r '.[0].results[0].spotify_counts' <<<"$result")
+          cleaned=$(jq -r '.[0].results[0].cleaned' <<<"$result")
+          search_rows=$(jq -r '.[0].results[0].search_rows' <<<"$result")
+          fts_rows=$(jq -r '.[0].results[0].fts_rows' <<<"$result")
+          printf 'songs=%s apple=%s spotify=%s scored=%s spotify_counts=%s cleaned=%s search=%s fts=%s\n' \
+            "$actual_songs" "$apple_links" "$spotify_links" "$scored" "$spotify_counts" "$cleaned" "$search_rows" "$fts_rows"
+          test "$actual_songs" = "$expected_songs"
+          test "$apple_links" = "$expected_songs"
+          test "$spotify_links" = "$expected_songs"
+          test "$scored" = "$expected_songs"
+          test "$spotify_counts" = "$expected_songs"
+          test "$cleaned" = "$expected_cleaned"
+          test "$search_rows" = "$expected_search"
+          test "$fts_rows" = "$expected_search"

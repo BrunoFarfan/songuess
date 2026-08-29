@@ -521,6 +521,11 @@ def write_catalog(
             artwork = apple.get("artworkUrl100")
             if artwork:
                 artwork = artwork.replace("100x100bb", "600x600bb")
+            explicitness = stored_apple_explicitness(apple)
+            # A newly selected clean track has not had its structured Apple
+            # "Other Versions" alternatives checked yet. Leave the timestamp
+            # empty so the resumable explicit-version pass queues it once.
+            checked_at = None if explicitness == "cleaned" else explicitness_checked_at
             values = (
                 apple["trackName"],
                 apple["artistName"],
@@ -531,8 +536,8 @@ def write_catalog(
                 apple["previewUrl"],
                 artwork,
                 apple.get("trackViewUrl"),
-                stored_apple_explicitness(apple),
-                explicitness_checked_at,
+                explicitness,
+                checked_at,
             )
             if existing_mbid:
                 connection.execute(
@@ -681,8 +686,14 @@ def backfill_catalog_explicit_versions(
     with sqlite3.connect(database_path) as connection:
         rows = connection.execute(
             "SELECT id, musicbrainz_id, apple_track_id, apple_explicitness_checked_at "
-            "FROM songs WHERE apple_track_id IS NOT NULL ORDER BY id"
+            "FROM songs WHERE enabled = 1 AND apple_track_id IS NOT NULL ORDER BY id"
         ).fetchall()
+        occupied_apple_track_ids = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT apple_track_id FROM songs WHERE enabled = 1 AND apple_track_id IS NOT NULL"
+            )
+        }
     pending = [row for row in rows if not _fresh_iso_timestamp(row[3], stale_after_days)]
     print(
         f"Apple explicitness: {len(rows):,} songs; {len(rows) - len(pending):,} fresh; "
@@ -740,6 +751,7 @@ def backfill_catalog_explicit_versions(
         clean_tracks,
         country=country,
         max_workers=preview_workers,
+        excluded_track_ids=occupied_apple_track_ids,
     )
     failures += len(clean_tracks) - len(checked_clean_ids)
     for song_id in checked_clean_ids:

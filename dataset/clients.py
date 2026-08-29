@@ -729,6 +729,37 @@ def stored_apple_explicitness(track: dict[str, Any]) -> str:
     return {"notExplicit": "not_explicit"}.get(apple_explicitness(track), apple_explicitness(track))
 
 
+def _explicit_equivalent_rank(
+    clean_track: dict[str, Any], candidate: dict[str, Any]
+) -> tuple[float, int, int, int]:
+    """Prefer the canonical explicit release among equivalent provider tracks."""
+    album_score = _similarity(
+        str(clean_track.get("collectionName") or ""),
+        str(candidate.get("collectionName") or ""),
+    )
+    expected_duration = clean_track.get("trackTimeMillis")
+    candidate_duration = candidate.get("trackTimeMillis")
+    duration_delta = (
+        abs(int(expected_duration) - int(candidate_duration))
+        if isinstance(expected_duration, (int, float))
+        and isinstance(candidate_duration, (int, float))
+        else 10_000_000
+    )
+    expected_year = _release_year(clean_track.get("releaseDate"))
+    candidate_year = _release_year(candidate.get("releaseDate"))
+    year_delta = (
+        abs(expected_year - candidate_year)
+        if expected_year is not None and candidate_year is not None
+        else 10_000
+    )
+    return (
+        album_score,
+        -duration_delta,
+        -year_delta,
+        -int(candidate.get("trackId") or 0),
+    )
+
+
 def _select_apple_track(
     results: list[dict[str, Any]],
     *,
@@ -813,9 +844,12 @@ def find_explicit_apple_equivalent(
                 continue
             matches.append(dict(result))
     unique_matches = {str(match.get("trackId")): match for match in matches}
-    if len(unique_matches) != 1:
+    if not unique_matches:
         return None
-    explicit = next(iter(unique_matches.values()))
+    explicit = max(
+        unique_matches.values(),
+        key=lambda candidate: _explicit_equivalent_rank(clean_track, candidate),
+    )
     explicit["canonicalReleaseYear"] = _release_year(
         clean_track.get("releaseDate")
     ) or _release_year(explicit.get("releaseDate"))
@@ -839,10 +873,12 @@ def find_explicit_apple_equivalents(
     *,
     country: str,
     max_workers: int = 8,
+    excluded_track_ids: set[str] | None = None,
     request_text: Callable[[str], str] = read_text,
     request_json: Callable[[str], dict[str, Any]] = read_json,
 ) -> tuple[dict[int, dict[str, Any]], set[int]]:
     """Bulk-resolve explicit alternates using concurrent pages and batched lookups."""
+    excluded = excluded_track_ids or set()
 
     def fetch_page(item: tuple[int, dict[str, Any]]) -> tuple[int, list[str], bool]:
         song_id, track = item
@@ -890,6 +926,8 @@ def find_explicit_apple_equivalents(
             for result in tracks_by_album.get(album_id, []):
                 if apple_explicitness(result) != "explicit" or not result.get("previewUrl"):
                     continue
+                if str(result.get("trackId")) in excluded:
+                    continue
                 if _similarity(expected_title, result.get("trackName", "")) < 0.97:
                     continue
                 if _similarity(expected_artist, result.get("artistName", "")) < 0.9:
@@ -902,8 +940,11 @@ def find_explicit_apple_equivalents(
                 ):
                     continue
                 matches[str(result["trackId"])] = result
-        if len(matches) == 1:
-            resolved[song_id] = next(iter(matches.values()))
+        if matches:
+            resolved[song_id] = max(
+                matches.values(),
+                key=lambda candidate: _explicit_equivalent_rank(clean_track, candidate),
+            )
     return resolved, checked
 
 
