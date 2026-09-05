@@ -4,7 +4,10 @@
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 1rem;
+  padding-block: max(1rem, env(safe-area-inset-top, 0px))
+    max(1rem, env(safe-area-inset-bottom, 0px));
+  padding-inline: max(1rem, env(safe-area-inset-left, 0px))
+    max(1rem, env(safe-area-inset-right, 0px));
   overflow-y: auto;
   background: rgba(4, 5, 4, 0.78);
   backdrop-filter: blur(10px);
@@ -176,13 +179,5 @@
   }
   .tutorial-tracklist {
     margin-block: 1.15rem;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .tutorial-backdrop,
-  .tutorial-sleeve,
-  .tutorial-backdrop.is-leaving,
-  .tutorial-backdrop.is-leaving .tutorial-sleeve {
-    animation-duration: 0.01ms !important;
   }
 }

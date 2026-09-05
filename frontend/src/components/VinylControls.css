@@ -1,6 +1,6 @@
 /* The record and its three primary actions are one instrument panel. */
 .vinyl-control-deck {
-  --deck-vinyl-size: min(58vw, 19rem);
+  --deck-vinyl-size: min(58cqi, 19rem);
   --deck-sleeve-size: 16rem;
   --deck-stage-height: 20rem;
   position: relative;
@@ -58,7 +58,7 @@
   );
 }
 
-@media (min-width: 42rem) {
+@container gameplay (min-width: 42rem) {
   .phase-revealed .vinyl-control-deck .vinyl-sleeve-reveal {
     width: calc(
       var(--deck-sleeve-size) + var(--deck-reveal-half-offset) + var(--deck-reveal-half-offset)
@@ -169,7 +169,7 @@
   height: auto;
   grid-column: 1;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: clamp(1.5rem, 6vw, 3.5rem);
+  gap: clamp(1.5rem, 6cqi, 3.5rem);
   margin: 1.4rem auto 0;
 }
 
@@ -197,21 +197,21 @@
 }
 
 .vinyl-control-deck .dock-side-action {
-  width: clamp(4.15rem, 13vw, 4.8rem);
+  width: clamp(4.15rem, 13cqi, 4.8rem);
   padding: 0.55rem;
   text-wrap: balance;
 }
 
 .phase-revealed .vinyl-control-deck .dock-side-action {
   position: static;
-  width: clamp(7rem, 13vw, 8.25rem);
+  width: clamp(7rem, 13cqi, 8.25rem);
   min-height: 0;
   aspect-ratio: 1;
   justify-self: center;
   margin: 0;
   padding: 1rem;
   border-radius: 50%;
-  font-size: clamp(0.76rem, 1.3vw, 0.9rem);
+  font-size: clamp(0.76rem, 1.3cqi, 0.9rem);
   line-height: 1.12;
   letter-spacing: 0.01em;
   text-align: center;
@@ -229,13 +229,13 @@
 
 /* On wide screens, keep the revealed-round actions beside the sleeve notes so
    the complete result and both next-step controls fit in one viewport. */
-@media (min-width: 52rem) {
+@container gameplay (min-width: 46rem) {
   .phase-revealed .listening-card {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .phase-revealed .vinyl-control-deck {
-    width: min(calc(100vw - 3rem), 52rem);
+    width: 100%;
     max-width: none;
     grid-template-columns: minmax(7.5rem, 1fr) 27rem minmax(7.5rem, 1fr);
     justify-self: center;
@@ -282,9 +282,9 @@
   transform: translate(0.18rem, 0.18rem) scale(0.99);
 }
 
-@media (max-width: 41.99rem) {
+@container gameplay (max-width: 41.99rem) {
   .vinyl-control-deck {
-    --deck-vinyl-size: min(61vw, 15.75rem);
+    --deck-vinyl-size: min(61cqi, 15.75rem);
     --deck-stage-height: 15rem;
     grid-template-columns: minmax(3.45rem, 1fr) var(--deck-vinyl-size) minmax(3.45rem, 1fr);
   }
@@ -294,13 +294,13 @@
   }
 
   .vinyl-control-deck .dock-side-action {
-    width: clamp(3.35rem, 15vw, 3.8rem);
+    width: clamp(3.35rem, 15cqi, 3.8rem);
     padding: 0.42rem;
     font-size: 0.54rem;
   }
 
   .phase-playing .vinyl-control-deck {
-    --deck-vinyl-size: min(88vw, 22rem);
+    --deck-vinyl-size: min(88cqi, 22rem);
     --deck-stage-height: var(--deck-vinyl-size);
     grid-template-columns: minmax(0, 1fr);
   }
@@ -316,12 +316,12 @@
   }
 
   .phase-playing .vinyl-control-deck .dock-play-action {
-    width: clamp(3.5rem, 18vw, 4.75rem);
+    width: clamp(3.5rem, 18cqi, 4.75rem);
     grid-row: 1;
   }
 
   .phase-playing .vinyl-control-deck .dock-side-action {
-    width: clamp(3.45rem, 16vw, 4rem);
+    width: clamp(3.45rem, 16cqi, 4rem);
     grid-row: 1;
     align-self: end;
     margin-bottom: 0.8rem;
@@ -338,11 +338,11 @@
   }
 
   .phase-revealed .vinyl-control-deck {
-    --deck-sleeve-size: min(62vw, 14rem);
+    --deck-sleeve-size: min(62cqi, 14rem);
     --deck-vinyl-size: var(--deck-sleeve-size);
     --deck-stage-height: calc(var(--deck-sleeve-size) + 3rem);
-    --deck-reveal-half-offset: min(15.5vw, 3.5rem);
-    --deck-reveal-glow: min(38vw, 8.7rem);
+    --deck-reveal-half-offset: min(15.5cqi, 3.5rem);
+    --deck-reveal-glow: min(38cqi, 8.7rem);
     left: auto;
     width: 100%;
     min-height: calc(100svh - 10rem - env(safe-area-inset-bottom));
@@ -374,7 +374,7 @@
   }
 
   .phase-revealed .vinyl-control-deck .vinyl-sleeve-reveal__stage {
-    margin-top: clamp(0.75rem, 3vw, 1.25rem);
+    margin-top: clamp(0.75rem, 3cqi, 1.25rem);
     background: radial-gradient(
       circle var(--deck-reveal-glow) at calc(50% + var(--deck-reveal-half-offset)) 50%,
       rgba(181, 181, 178, 0.28) 0,
@@ -406,13 +406,13 @@
   .phase-revealed .vinyl-control-deck .game-actions-dock {
     grid-row: 3;
     width: min(100%, 22rem);
-    gap: clamp(1.2rem, 9vw, 2.5rem);
+    gap: clamp(1.2rem, 9cqi, 2.5rem);
     align-self: end;
     margin: auto auto max(0.35rem, env(safe-area-inset-bottom));
   }
 
   .phase-revealed .vinyl-control-deck .dock-side-action {
-    width: clamp(6.5rem, 30vw, 7.5rem);
+    width: clamp(6.5rem, 30cqi, 7.5rem);
     padding: 0.85rem;
     font-size: 0.75rem;
   }
@@ -424,9 +424,9 @@
   }
 }
 
-@media (max-width: 23rem) {
+@container gameplay (max-width: 22rem) {
   .vinyl-control-deck {
-    --deck-vinyl-size: min(54vw, 12.5rem);
+    --deck-vinyl-size: min(54cqi, 12.5rem);
     grid-template-columns: minmax(3.75rem, 1fr) var(--deck-vinyl-size) minmax(3.75rem, 1fr);
   }
 

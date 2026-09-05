@@ -563,7 +563,7 @@
 .setup-range-readout output {
   color: var(--setup-ink);
   font-family: "Fraunces Variable", Georgia, serif;
-  font-size: clamp(1.9rem, 9vw, 3rem);
+  font-size: clamp(1.9rem, 9cqi, 3rem);
   letter-spacing: -0.05em;
   line-height: 1;
 }
@@ -776,7 +776,7 @@
   border: 0;
 }
 
-@media (max-width: 520px) {
+@container game-shell (max-width: 32.5rem) {
   .setup-wizard {
     padding-top: 0.15rem;
   }
@@ -1001,22 +1001,9 @@
   transform: translate(0.1rem, 0.1rem);
 }
 
-@media (min-width: 900px) {
+@container game-shell (min-width: 34rem) {
   .setup-wizard-header h1 {
-    font-size: clamp(2.2rem, 3.5vw, 3rem);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .setup-wizard-step {
-    animation: none;
-  }
-
-  .setup-custom-choice,
-  .setup-preset-list button,
-  .setup-custom-choice b,
-  .setup-preset-list b {
-    transition: none;
+    font-size: clamp(2.2rem, 3.5cqi, 3rem);
   }
 }
 
@@ -1031,7 +1018,7 @@
 }
 
 .setup-wizard-header h1 {
-  font-size: clamp(1.8rem, 8vw, 2.25rem);
+  font-size: clamp(1.8rem, 8cqi, 2.25rem);
 }
 
 .setup-preset-list {
@@ -1287,7 +1274,7 @@
   transform: translate(0.14rem, 0.14rem);
 }
 
-@media (max-width: 520px) {
+@container game-shell (max-width: 32.5rem) {
   .setup-step-actions,
   .setup-review-actions {
     grid-template-columns: 3rem minmax(0, 1fr);
@@ -1396,7 +1383,7 @@
 
 .setup-inline-token {
   display: grid;
-  grid-template-columns: minmax(0, auto) 1.7rem;
+  grid-template-columns: minmax(0, auto) var(--touch-target, 2.75rem);
   min-height: 2.2rem;
   max-width: min(100%, 16rem);
   overflow: hidden;
@@ -1435,8 +1422,8 @@
 }
 
 .setup-inline-token button {
-  width: 1.7rem;
-  min-width: 1.7rem;
+  width: var(--touch-target, 2.75rem);
+  min-width: var(--touch-target, 2.75rem);
   min-height: 100%;
   color: var(--setup-ink);
   background: rgba(244, 239, 229, 0.04);
@@ -1456,7 +1443,7 @@
   font-size: 1.75rem;
 }
 
-@media (max-width: 520px) {
+@container game-shell (max-width: 32.5rem) {
   .setup-artist-step,
   .setup-option-step {
     min-height: 13rem;
@@ -1469,6 +1456,11 @@
 
   .setup-inline-token {
     max-width: 100%;
+  }
+
+  .setup-wizard-review dl button {
+    min-width: var(--touch-target, 2.75rem);
+    min-height: var(--touch-target, 2.75rem);
   }
 
   .setup-wizard.view-review {
@@ -1506,12 +1498,12 @@
 
 .view-review .setup-wizard-kicker {
   margin-bottom: 0.55rem;
-  font-size: clamp(0.7rem, 1.05vw, 0.82rem);
+  font-size: clamp(0.7rem, 1.05cqi, 0.82rem);
 }
 
 .view-review .setup-wizard-header h1 {
   max-width: none;
-  font-size: clamp(3.2rem, 7vw, 5.8rem);
+  font-size: clamp(3.2rem, 7cqi, 5.8rem);
   line-height: 0.88;
 }
 
@@ -1523,14 +1515,14 @@
 .view-review .setup-review-count {
   min-height: 0;
   margin: 0 0 clamp(0.75rem, 2vh, 1.2rem);
-  font-size: clamp(1.45rem, 2.8vw, 2rem);
+  font-size: clamp(1.45rem, 2.8cqi, 2rem);
   line-height: 1;
 }
 
 .view-review .setup-wizard-review dl {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 clamp(1.4rem, 3vw, 2.4rem);
+  gap: 0 clamp(1.4rem, 3cqi, 2.4rem);
 }
 
 .view-review .setup-wizard-review dl > div {
@@ -1549,18 +1541,18 @@
 }
 
 .view-review .setup-wizard-review dt {
-  font-size: clamp(0.66rem, 1vw, 0.78rem);
+  font-size: clamp(0.66rem, 1cqi, 0.78rem);
 }
 
 .view-review .setup-wizard-review dd {
-  font-size: clamp(1.2rem, 2.2vw, 1.65rem);
+  font-size: clamp(1.2rem, 2.2cqi, 1.65rem);
   line-height: 1.05;
 }
 
 .view-review .setup-review-actions {
   display: grid;
   grid-template-columns: 4.25rem minmax(14rem, 23rem);
-  gap: clamp(1rem, 2vw, 1.5rem);
+  gap: clamp(1rem, 2cqi, 1.5rem);
   align-items: center;
   justify-content: space-between;
   margin-top: clamp(1.15rem, 2.8vh, 1.8rem);
@@ -1584,7 +1576,7 @@
   font-size: 1.15rem;
 }
 
-@media (max-width: 520px) {
+@container game-shell (max-width: 32.5rem) {
   .setup-wizard.view-review {
     display: block;
     min-height: 0;
@@ -1601,7 +1593,7 @@
   }
 
   .view-review .setup-wizard-header h1 {
-    font-size: clamp(2.85rem, 14vw, 3.55rem);
+    font-size: clamp(2.85rem, 14cqi, 3.55rem);
   }
 
   .view-review .setup-wizard-review {
@@ -1660,7 +1652,7 @@
   }
 }
 
-@media (max-width: 520px) and (max-height: 700px) {
+@media (max-width: 32.5rem) and (max-height: 43.75rem) {
   .view-review .setup-wizard-header {
     margin-bottom: 0.75rem;
   }
@@ -1685,14 +1677,14 @@
   }
 }
 
-@media (min-width: 52rem) {
+@container game-shell (min-width: 52rem) {
   .setup-wizard.view-review {
     display: grid;
     grid-template-columns: minmax(22rem, 0.95fr) minmax(28rem, 1.05fr);
-    gap: clamp(2.5rem, 4vw, 4rem);
+    gap: clamp(2.5rem, 4cqi, 4rem);
     align-items: center;
     min-height: min(34rem, calc(100svh - 9rem));
-    padding-inline: clamp(0.25rem, 1vw, 0.75rem);
+    padding-inline: clamp(0.25rem, 1cqi, 0.75rem);
   }
 
   .view-review .setup-wizard-header {
@@ -1702,7 +1694,7 @@
 
   .view-review .setup-wizard-header h1 {
     max-width: 100%;
-    font-size: clamp(3.45rem, 4.2vw, 4.35rem);
+    font-size: clamp(3.45rem, 4.2cqi, 4.35rem);
     line-height: 0.9;
     text-wrap: balance;
   }
