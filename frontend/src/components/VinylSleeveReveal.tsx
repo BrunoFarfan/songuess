@@ -53,11 +53,6 @@ export default function VinylSleeveReveal({
       return;
     }
 
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setRevealSettled(true);
-      return;
-    }
-
     const fallback = window.setTimeout(() => setRevealSettled(true), 1100);
     return () => window.clearTimeout(fallback);
   }, [revealed]);

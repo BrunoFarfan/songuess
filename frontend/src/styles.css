@@ -10,6 +10,12 @@
   --muted: #99958c;
   --line: rgba(244, 239, 229, 0.14);
   --shadow: 0 24px 80px rgba(0, 0, 0, 0.36);
+  --page-gutter: clamp(0.75rem, 4vw, 1.5rem);
+  --safe-inline-start: max(var(--page-gutter), env(safe-area-inset-left, 0px));
+  --safe-inline-end: max(var(--page-gutter), env(safe-area-inset-right, 0px));
+  --safe-block-start: max(1.25rem, env(safe-area-inset-top, 0px));
+  --safe-block-end: max(1rem, env(safe-area-inset-bottom, 0px));
+  --touch-target: 2.75rem;
   font-family: "Manrope Variable", sans-serif;
   color: var(--ink);
   background: var(--paper);
@@ -21,14 +27,13 @@
 }
 
 html {
-  min-width: 320px;
   background: var(--paper);
 }
 
 body {
   min-height: 100vh;
   margin: 0;
-  overflow-x: hidden;
+  overflow-x: clip;
   background:
     radial-gradient(circle at 50% 50%, rgba(255, 101, 71, 0.055), transparent 18rem),
     repeating-radial-gradient(
@@ -54,6 +59,10 @@ body::before {
 button,
 input {
   font: inherit;
+}
+img,
+svg {
+  max-width: 100%;
 }
 button {
   position: relative;
@@ -112,10 +121,12 @@ main {
   min-height: 100svh;
   grid-template-columns: minmax(0, 1fr);
   place-items: center;
-  padding: 1.25rem 0 3rem;
+  padding-block: var(--safe-block-start) max(3rem, var(--safe-block-end));
+  padding-inline: var(--safe-inline-start) var(--safe-inline-end);
 }
 .game-shell {
-  width: min(calc(100% - 1.5rem), 36rem);
+  container: game-shell / inline-size;
+  width: min(100%, 36rem);
   min-width: 0;
   margin-inline: auto;
   justify-self: center;
@@ -123,7 +134,10 @@ main {
 
 /* The final setup review is an information-rich screen, not a narrow form. */
 .game-shell:has(.setup-wizard.view-review) {
-  width: min(calc(100% - 2rem), 64rem);
+  width: min(100%, 64rem);
+}
+.game-shell:has(.phase-revealed) {
+  width: min(100%, 52rem);
 }
 
 .wrong-feedback-overlay {
@@ -199,6 +213,8 @@ main {
 .utility-icon-button,
 .utility-close-button {
   display: grid;
+  min-width: var(--touch-target);
+  min-height: var(--touch-target);
   place-items: center;
   padding: 0;
   border: 1px solid rgba(244, 239, 229, 0.2);
@@ -212,7 +228,7 @@ main {
     transform 130ms ease;
 }
 .utility-icon-button {
-  width: 2.25rem;
+  width: var(--touch-target);
   aspect-ratio: 1;
   border-radius: 50%;
 }
@@ -248,7 +264,7 @@ main {
   z-index: 75;
   top: calc(100% + 0.65rem);
   right: 0;
-  width: min(17rem, calc(100vw - 1.5rem));
+  width: min(17rem, calc(100dvw - var(--safe-inline-start) - var(--safe-inline-end)));
   padding: 0.85rem 0.9rem 0.75rem;
   border: 1px solid rgba(244, 239, 229, 0.2);
   background: rgba(18, 19, 16, 0.96);
@@ -276,6 +292,7 @@ main {
   min-width: 0;
 }
 .gameplay-view {
+  container: gameplay / inline-size;
   animation: play-mode-in 220ms ease both;
 }
 .statistics-view {
@@ -830,6 +847,7 @@ legend,
   );
 }
 .vinyl-progress.is-spinning .vinyl-disc {
+  /* Playback motion is an intentional part of the game and is identical for every player. */
   animation: vinyl-spin 4s linear infinite;
 }
 .vinyl-progress-ring {
@@ -1279,7 +1297,10 @@ legend,
   inset: 0;
   display: grid;
   place-items: center;
-  padding: 1.25rem;
+  padding-block: max(1.25rem, env(safe-area-inset-top, 0px))
+    max(1.25rem, env(safe-area-inset-bottom, 0px));
+  padding-inline: max(1.25rem, env(safe-area-inset-left, 0px))
+    max(1.25rem, env(safe-area-inset-right, 0px));
   background: rgba(4, 5, 4, 0.76);
   backdrop-filter: blur(10px);
   animation: confirm-fade 160ms ease both;
@@ -1718,13 +1739,14 @@ button[data-button-feedback="click"]::after {
 
 @media (min-width: 42rem) {
   main {
-    padding: 2rem 0;
+    padding-block: max(2rem, env(safe-area-inset-top, 0px))
+      max(2rem, env(safe-area-inset-bottom, 0px));
   }
   .game-shell {
-    width: min(calc(100% - 2rem), 36rem);
+    width: min(100%, 36rem);
   }
   .game-shell:has(.setup-wizard.view-review) {
-    width: min(calc(100% - 3rem), 64rem);
+    width: min(100%, 64rem);
   }
   .listening-card,
   .guess-card {
@@ -1736,10 +1758,10 @@ button[data-button-feedback="click"]::after {
 @media (max-width: 41.99rem) {
   main {
     place-items: start center;
-    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    padding-bottom: var(--safe-block-end);
   }
   .game-shell:has(.setup-wizard.view-review) {
-    width: min(calc(100% - 1rem), 64rem);
+    width: min(100%, 64rem);
   }
   main:has(.phase-revealed) {
     min-height: auto;
@@ -1748,12 +1770,12 @@ button[data-button-feedback="click"]::after {
     margin-bottom: 0.6rem;
   }
   .utility-icon-button {
-    width: 2.25rem;
+    width: var(--touch-target);
   }
   .utility-popover {
     position: fixed;
-    top: 4.7rem;
-    right: 0.75rem;
+    top: max(4.7rem, calc(env(safe-area-inset-top, 0px) + 3.7rem));
+    right: var(--safe-inline-end);
   }
   .statistics-view {
     padding-top: 1.2rem;
@@ -1897,21 +1919,6 @@ button[data-button-feedback="click"]::after {
   .record-frame img,
   .artwork-placeholder {
     max-width: 14rem;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-  }
-  .wrong-feedback-overlay {
-    opacity: 1;
-    transform: none;
-    animation: none !important;
   }
 }
 
@@ -2150,6 +2157,7 @@ button:disabled {
 
 .round-answer-surface {
   position: relative;
+  container: answer-surface / inline-size;
 }
 .guess-collapse {
   display: grid;
@@ -2348,20 +2356,5 @@ button:disabled {
   .personal-stats {
     margin-top: 1.4rem;
     padding-bottom: 1rem;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .vinyl-progress.is-revealed .vinyl-flipper {
-    transform: none;
-  }
-  .vinyl-front {
-    transition: opacity 0.01ms linear;
-  }
-  .vinyl-progress.is-revealed .vinyl-front {
-    opacity: 0;
-  }
-  .vinyl-back {
-    transform: none;
   }
 }
