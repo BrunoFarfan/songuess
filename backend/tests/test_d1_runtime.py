@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
 from dataset.export_d1 import export_d1
 from dataset.populate import initialize_database
 
+from app.catalog_cache import CatalogCache
 from app.database import D1Database
 from app.models import RoundRequest
 from app.repository import choose_round_async
@@ -25,6 +25,7 @@ class FakeStatement:
         return self
 
     async def run(self) -> SimpleNamespace:
+        self.binding.calls.append((self.sql, self.parameters))
         return SimpleNamespace(results=self.binding.run_results.pop(0))
 
     async def first(self) -> dict[str, object] | None:
@@ -61,26 +62,31 @@ def test_d1_adapter_returns_worker_binding_rows() -> None:
     assert rows == [{"id": 1}, {"id": 2}]
 
 
-def test_round_exclusions_use_one_json_binding_beyond_d1_parameter_limit() -> None:
+def test_round_pool_reuses_filters_and_applies_500_exclusions_in_memory() -> None:
     binding = FakeD1()
-    binding.first_results.extend(
-        [
-            {"total": 1},
-            {"id": 999, "preview_url": "https://audio/999"},
-        ]
+    binding.run_results.append(
+        [{"id": song_id, "preview_url": f"https://audio/{song_id}"} for song_id in (1, 999)]
     )
+    cache = CatalogCache()
 
     result = asyncio.run(
-        choose_round_async(D1Database(binding), _round_request(list(range(1, 501))))
+        choose_round_async(
+            D1Database(binding, catalog_cache=cache), _round_request(list(range(1, 501)))
+        )
     )
 
     assert result is not None and result.song_id == 999
-    assert len(binding.calls) == 2
-    assert "json_each(?)" in binding.calls[0][0]
-    assert "ORDER BY RANDOM()" not in binding.calls[1][0]
-    assert len(binding.calls[0][1]) == 5
-    assert json.loads(str(binding.calls[0][1][-1])) == list(range(1, 501))
-    assert len(binding.calls[1][1]) == 6
+    second = asyncio.run(
+        choose_round_async(D1Database(binding, catalog_cache=cache), _round_request([999]))
+    )
+    assert second is not None and second.song_id == 1
+    exhausted = asyncio.run(
+        choose_round_async(D1Database(binding, catalog_cache=cache), _round_request([1, 999]))
+    )
+    assert exhausted is None
+    assert len(binding.calls) == 1
+    assert len(binding.calls[0][1]) == 4
+    assert "COUNT" not in binding.calls[0][0]
 
 
 def test_full_d1_export_is_deterministic_and_application_only(tmp_path: Path) -> None:

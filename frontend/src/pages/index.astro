@@ -3,6 +3,9 @@ import "@fontsource-variable/fraunces";
 import "@fontsource-variable/manrope";
 import Game from "../components/Game";
 import "../styles.css";
+
+const description =
+  "Songuess is a free music guessing game. Name songs from short audio clips, hear more with each guess, and play by artist, genre or decade.";
 ---
 
 <!doctype html>
@@ -10,17 +13,14 @@ import "../styles.css";
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="description" content="Songuess — hear a little more, one guess at a time." />
+    <meta name="description" content={description} />
     <meta name="theme-color" content="#171512" />
     <link rel="canonical" href="https://songuess.bruni.to/" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Songuess" />
     <meta property="og:title" content="Songuess — Name that song" />
-    <meta
-      property="og:description"
-      content="Hear a little more, one guess at a time. Put your music knowledge on the record."
-    />
+    <meta property="og:description" content={description} />
     <meta property="og:url" content="https://songuess.bruni.to/" />
     <meta property="og:image" content="https://songuess.bruni.to/songuess-social-v3.jpg" />
     <meta
@@ -36,10 +36,7 @@ import "../styles.css";
     />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Songuess — Name that song" />
-    <meta
-      name="twitter:description"
-      content="Hear a little more, one guess at a time. Put your music knowledge on the record."
-    />
+    <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content="https://songuess.bruni.to/songuess-social-v3.jpg" />
     <meta
       name="twitter:image:alt"

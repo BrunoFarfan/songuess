@@ -4,7 +4,8 @@ import secrets
 import sqlite3
 from difflib import SequenceMatcher
 
-from app.database import Database, Row, SQLiteDatabase
+from app.catalog_cache import cache_catalog
+from app.database import D1Database, Database, Row, SQLiteDatabase
 from app.models import (
     ArtistOption,
     FilterContextRequest,
@@ -72,7 +73,26 @@ def _round_filter(request: RoundRequest) -> tuple[list[str], list[object]]:
     return clauses, parameters
 
 
+@cache_catalog(row_count=len)
+async def _round_pool_async(database: Database, request: RoundRequest) -> list[tuple[int, str]]:
+    clauses, parameters = _round_filter(request)
+    rows = await database.fetch_all(
+        f"SELECT s.id, s.preview_url FROM songs s WHERE {' AND '.join(clauses)}", parameters
+    )
+    # Keep plain Python values, rather than request-bound JavaScript proxies, in the cache.
+    return [(int(row["id"]), str(row["preview_url"])) for row in rows]
+
+
 async def choose_round_async(database: Database, request: RoundRequest) -> RoundResponse | None:
+    if isinstance(database, D1Database):
+        pool = await _round_pool_async(database, request.model_copy(update={"exclude_ids": []}))
+        excluded = set(request.exclude_ids)
+        available = [song for song in pool if song[0] not in excluded]
+        if not available:
+            return None
+        song_id, preview_url = secrets.choice(available)
+        return RoundResponse(song_id=song_id, preview_url=preview_url)
+
     clauses, parameters = _round_filter(request)
     where = " AND ".join(clauses)
     count_row = await database.fetch_one(
@@ -179,6 +199,17 @@ async def _song_candidates(database: Database, query: str, candidate_limit: int)
     )
 
 
+@cache_catalog()
+async def _browse_count_async(database: Database) -> int:
+    row = await database.fetch_one(
+        "SELECT COUNT(*) AS total FROM song_search ss "
+        "JOIN songs s ON s.id = ss.song_id "
+        "WHERE s.enabled = 1 AND s.preview_url <> ''"
+    )
+    return int(row["total"]) if row else 0
+
+
+@cache_catalog(row_count=lambda result: len(result[0]) + 1)
 async def search_songs_async(
     database: Database,
     query: str,
@@ -189,19 +220,25 @@ async def search_songs_async(
         database.ensure_search_index()
     normalized_query = _normalize_search_text(query)
     if not normalized_query:
-        count_row = await database.fetch_one(
-            "SELECT COUNT(*) AS total FROM song_search ss "
-            "JOIN songs s ON s.id = ss.song_id "
-            "WHERE s.enabled = 1 AND s.preview_url <> ''"
-        )
+        total = await _browse_count_async(database)
+        page_size = min(limit, max(0, total - offset))
+        if page_size == 0:
+            return [], total
+        # Walk from the nearer end of the same index, preserving ascending API pages.
+        reverse_offset = total - offset - page_size
+        backwards = reverse_offset < offset
+        direction = " DESC" if backwards else ""
         rows = await database.fetch_all(
             "SELECT s.id, s.title, s.artist, s.album, s.release_year, "
             "s.artwork_url, s.popularity_score FROM song_search ss "
-            "JOIN songs s ON s.id = ss.song_id "
+            "CROSS JOIN songs s ON s.id = ss.song_id "
             "WHERE s.enabled = 1 AND s.preview_url <> '' "
-            "ORDER BY ss.normalized_title, ss.normalized_artist, s.id LIMIT ? OFFSET ?",
-            [limit, offset],
+            f"ORDER BY ss.normalized_title{direction}, ss.normalized_artist{direction}, "
+            f"ss.song_id{direction} LIMIT ? OFFSET ?",
+            [page_size, reverse_offset if backwards else offset],
         )
+        if backwards:
+            rows.reverse()
         return [
             SongSearchResult(
                 id=row["id"],
@@ -213,7 +250,7 @@ async def search_songs_async(
                 popularity_score=row["popularity_score"],
             )
             for row in rows
-        ], int(count_row["total"]) if count_row is not None else 0
+        ], total
 
     candidate_limit = min(max(offset + limit, 100), 500)
     rows = await _song_candidates(database, normalized_query, candidate_limit)
@@ -395,6 +432,7 @@ async def get_song_async(database: Database, song_id: int) -> SongReveal | None:
     )
 
 
+@cache_catalog()
 async def get_filter_metadata_async(database: Database) -> FilterMetadata:
     summary = await database.fetch_one(
         "SELECT MIN(release_year) AS year_min, MAX(release_year) AS year_max, "
@@ -485,6 +523,7 @@ def _context_clauses(
     return clauses, parameters
 
 
+@cache_catalog()
 async def get_contextual_filter_metadata_async(
     database: Database, request: FilterContextRequest
 ) -> FilterMetadata:

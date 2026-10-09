@@ -234,10 +234,19 @@ Production uses one Python Worker. Requests under `/api/*` run through FastAPI a
 Assets. Local Uvicorn development continues to use `backend/data/songuess.sqlite3` through the same
 async repository contract.
 
-The runtime search tables in migration `012_runtime_search.sql` keep D1 queries bounded. FTS5
-returns at most 500 candidates for Python ranking, recent-song exclusions use one JSON binding even
-for 500 IDs, and random rounds use an exact count plus random offset instead of
-`ORDER BY RANDOM()`.
+The runtime search tables in migration `012_runtime_search.sql` return at most 500 FTS5 candidates
+for Python ranking. Migration `013_catalog_browse_order.sql` adds a covering index so empty-query
+browsing traverses catalog order without sorting the full catalog for each page. Pages near the
+end scan the same index backward and reverse the results into ascending order, avoiding a large
+forward offset while preserving first-and-last-page prefetch.
+
+The D1 runtime caches catalog counts, search pages, filter metadata, and eligible round pools for
+up to five minutes per Worker isolate. The cache holds at most 128 entries and 30,000 song rows;
+larger pools are fetched without being retained. Each round applies recent-song exclusions to the
+eligible pool and chooses uniformly at random, preserving gameplay randomness. Local SQLite stays
+uncached and uses count plus random offset for rounds. Cache reuse depends on isolate lifetime;
+catalog updates become visible on cache expiry or a Worker restart. Browsing prefetches the first
+and last pages so the carousel is ready for navigation in either direction.
 
 ### Local Worker validation
 
