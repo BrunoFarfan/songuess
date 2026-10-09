@@ -6,7 +6,11 @@ from typing import Any, Protocol
 
 from fastapi import Request
 
+from app.catalog_cache import CatalogCache
 from app.config import Settings, get_settings
+
+# Each deployed Worker binds one catalog database. Never share this with local SQLite.
+_worker_catalog_cache = CatalogCache()
 
 
 def connect(database_path: Path | None = None) -> sqlite3.Connection:
@@ -62,8 +66,9 @@ class SQLiteDatabase:
 class D1Database:
     """Thin adapter for the D1 binding exposed in a Python Worker request."""
 
-    def __init__(self, binding: Any) -> None:
+    def __init__(self, binding: Any, *, catalog_cache: CatalogCache | None = None) -> None:
         self.binding = binding
+        self.catalog_cache = catalog_cache if catalog_cache is not None else CatalogCache()
 
     def _prepare(self, statement: str, parameters: Sequence[object]) -> Any:
         prepared = self.binding.prepare(statement)
@@ -82,7 +87,7 @@ async def request_database(request: Request) -> AsyncIterator[Database]:
 
     environment = request.scope.get("env")
     if environment is not None and hasattr(environment, "DB"):
-        yield D1Database(environment.DB)
+        yield D1Database(environment.DB, catalog_cache=_worker_catalog_cache)
         return
 
     with database_connection() as connection:
