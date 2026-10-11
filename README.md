@@ -155,7 +155,7 @@ The React island implements:
 The shared album sleeve and vinyl models live in [`blender/`](blender/README.md),
 with an editable Blender source and reveal reference animation. Run
 `just blender-build` to regenerate the small GLB exports and preview. The game loads these assets in the browser: the record spins during playback,
-keeps its rotation through the reveal, and loops afterward. The reveal applies
+keeps its rotation through the reveal, and follows playback afterward. The reveal applies
 the current album artwork and follows the Blender reference using TypeScript.
 The carousel reuses the same sleeve model, folding old covers back and lifting
 the selected cover forward.

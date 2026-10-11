@@ -287,8 +287,8 @@ export default function AlbumCarouselScene({
         record.elapsed += dt * playbackRef.current.motionSpeed;
         const inspecting = record.gesture === "inspect";
         const returning = record.gesture === "return";
-        const duration = inspecting ? 1.1 : returning ? 0.78 : 0.9;
-        const delay = inspecting ? 0.85 : 0;
+        const duration = inspecting ? 0.55 : returning ? 0.39 : 0.45;
+        const delay = inspecting ? 0.425 : 0;
         const t =
           reducedMotion.matches || !record.fromPose
             ? 1

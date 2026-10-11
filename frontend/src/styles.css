@@ -847,11 +847,10 @@ legend,
   );
 }
 .vinyl-progress .vinyl-disc {
-  animation: vinyl-spin 4s linear infinite;
+  animation: vinyl-spin 1.8s linear infinite;
   animation-play-state: paused;
 }
-.vinyl-progress.is-spinning .vinyl-disc,
-.vinyl-sleeve-reveal.is-revealed .vinyl-disc {
+.vinyl-progress.is-spinning .vinyl-disc {
   animation-play-state: running;
 }
 @media (prefers-reduced-motion: reduce) {
