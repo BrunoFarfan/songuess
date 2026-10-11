@@ -5,6 +5,7 @@ import sqlite3
 from difflib import SequenceMatcher
 
 from app.catalog_cache import cache_catalog
+from app.catalog_snapshot import CatalogSnapshot
 from app.database import D1Database, Database, Row, SQLiteDatabase
 from app.models import (
     ArtistOption,
@@ -73,25 +74,38 @@ def _round_filter(request: RoundRequest) -> tuple[list[str], list[object]]:
     return clauses, parameters
 
 
-@cache_catalog(row_count=len)
-async def _round_pool_async(database: Database, request: RoundRequest) -> list[tuple[int, str]]:
-    clauses, parameters = _round_filter(request)
-    rows = await database.fetch_all(
-        f"SELECT s.id, s.preview_url FROM songs s WHERE {' AND '.join(clauses)}", parameters
-    )
-    # Keep plain Python values, rather than request-bound JavaScript proxies, in the cache.
-    return [(int(row["id"]), str(row["preview_url"])) for row in rows]
+@cache_catalog()
+async def _catalog_snapshot_async(database: Database) -> CatalogSnapshot:
+    row = await database.fetch_one("SELECT version, payload FROM catalog_runtime WHERE id = 1")
+    if row is None:
+        raise RuntimeError("Catalog snapshot missing; refresh the catalog_runtime snapshot")
+    return CatalogSnapshot.from_payload(str(row["payload"]), str(row["version"]))
 
 
 async def choose_round_async(database: Database, request: RoundRequest) -> RoundResponse | None:
     if isinstance(database, D1Database):
-        pool = await _round_pool_async(database, request.model_copy(update={"exclude_ids": []}))
-        excluded = set(request.exclude_ids)
-        available = [song for song in pool if song[0] not in excluded]
-        if not available:
-            return None
-        song_id, preview_url = secrets.choice(available)
-        return RoundResponse(song_id=song_id, preview_url=preview_url)
+        snapshot = await _catalog_snapshot_async(database)
+        available = snapshot.eligible_ids(request, exclude=True)
+        clauses, parameters = _round_filter(request.model_copy(update={"exclude_ids": []}))
+        for attempt in range(3):
+            if not available:
+                break
+            song_id = secrets.choice(available)
+            row = await database.fetch_one(
+                "SELECT s.id, s.preview_url FROM songs s WHERE s.id = ? "
+                f"AND s.preview_url <> '' AND {' AND '.join(clauses)}",
+                (song_id, *parameters),
+            )
+            if row is not None:
+                return RoundResponse(song_id=int(row["id"]), preview_url=str(row["preview_url"]))
+            # Validate the selected row against live filters: an import can reuse IDs.
+            # Refresh once and bound retries during an in-progress catalog replacement.
+            if attempt == 0:
+                database.catalog_cache.clear()
+                snapshot = await _catalog_snapshot_async(database)
+                available = snapshot.eligible_ids(request, exclude=True)
+            available = [candidate for candidate in available if candidate != song_id]
+        return None
 
     clauses, parameters = _round_filter(request)
     where = " AND ".join(clauses)
@@ -201,6 +215,8 @@ async def _song_candidates(database: Database, query: str, candidate_limit: int)
 
 @cache_catalog()
 async def _browse_count_async(database: Database) -> int:
+    if isinstance(database, D1Database):
+        return (await _catalog_snapshot_async(database)).browse_count
     row = await database.fetch_one(
         "SELECT COUNT(*) AS total FROM song_search ss "
         "JOIN songs s ON s.id = ss.song_id "
@@ -434,6 +450,10 @@ async def get_song_async(database: Database, song_id: int) -> SongReveal | None:
 
 @cache_catalog()
 async def get_filter_metadata_async(database: Database) -> FilterMetadata:
+    if isinstance(database, D1Database):
+        return FilterMetadata.model_validate(
+            (await _catalog_snapshot_async(database)).filter_metadata()
+        )
     summary = await database.fetch_one(
         "SELECT MIN(release_year) AS year_min, MAX(release_year) AS year_max, "
         "COUNT(*) AS song_count "
@@ -442,17 +462,16 @@ async def get_filter_metadata_async(database: Database) -> FilterMetadata:
     if summary is None:
         raise RuntimeError("Database did not return catalog metadata")
     genre_rows = await database.fetch_all(
-        "SELECT DISTINCT g.name FROM genres g "
-        "JOIN song_genres sg ON sg.genre_id = g.id "
-        "JOIN songs s ON s.id = sg.song_id "
-        "WHERE s.enabled = 1 AND s.popularity_score IS NOT NULL "
+        "SELECT g.name FROM genres g WHERE EXISTS ("
+        "SELECT 1 FROM song_genres sg CROSS JOIN songs s ON s.id = sg.song_id "
+        "WHERE sg.genre_id = g.id AND s.enabled = 1 AND s.popularity_score IS NOT NULL) "
         "ORDER BY g.name COLLATE NOCASE"
     )
     country_rows = await database.fetch_all(
-        "SELECT DISTINCT c.code FROM countries c "
-        "JOIN song_countries sc ON sc.country_id = c.id "
-        "JOIN songs s ON s.id = sc.song_id "
-        "WHERE s.enabled = 1 AND s.popularity_score IS NOT NULL ORDER BY c.code"
+        "SELECT c.code FROM countries c WHERE EXISTS ("
+        "SELECT 1 FROM song_countries sc CROSS JOIN songs s ON s.id = sc.song_id "
+        "WHERE sc.country_id = c.id AND s.enabled = 1 AND s.popularity_score IS NOT NULL) "
+        "ORDER BY c.code"
     )
     return FilterMetadata(
         genres=[row["name"] for row in genre_rows],
@@ -529,21 +548,25 @@ async def get_contextual_filter_metadata_async(
 ) -> FilterMetadata:
     """Return progressive facets; every facet only applies selections before it."""
 
+    if isinstance(database, D1Database):
+        return FilterMetadata.model_validate(
+            (await _catalog_snapshot_async(database)).filter_metadata(request)
+        )
+
     genre_clauses, genre_parameters = _context_clauses(request)
     genre_rows = await database.fetch_all(
-        "SELECT DISTINCT g.name FROM genres g "
-        "JOIN song_genres sg ON sg.genre_id = g.id "
-        "JOIN songs s ON s.id = sg.song_id "
-        f"WHERE {' AND '.join(genre_clauses)} ORDER BY g.name COLLATE NOCASE",
+        "SELECT g.name FROM genres g WHERE EXISTS ("
+        "SELECT 1 FROM song_genres sg CROSS JOIN songs s ON s.id = sg.song_id "
+        f"WHERE sg.genre_id = g.id AND {' AND '.join(genre_clauses)}) "
+        "ORDER BY g.name COLLATE NOCASE",
         genre_parameters,
     )
 
     country_clauses, country_parameters = _context_clauses(request, genres=True)
     country_rows = await database.fetch_all(
-        "SELECT DISTINCT c.code FROM countries c "
-        "JOIN song_countries sc ON sc.country_id = c.id "
-        "JOIN songs s ON s.id = sc.song_id "
-        f"WHERE {' AND '.join(country_clauses)} ORDER BY c.code",
+        "SELECT c.code FROM countries c WHERE EXISTS ("
+        "SELECT 1 FROM song_countries sc CROSS JOIN songs s ON s.id = sc.song_id "
+        f"WHERE sc.country_id = c.id AND {' AND '.join(country_clauses)}) ORDER BY c.code",
         country_parameters,
     )
 

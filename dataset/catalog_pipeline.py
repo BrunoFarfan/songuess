@@ -19,6 +19,7 @@ from dataset.clients import (
     fetch_musicbrainz_metadata,
     has_fresh_negative_apple_match,
 )
+from dataset.export_d1 import SNAPSHOT_REFRESH_SQL
 from dataset.metrics import finish_run, start_run
 from dataset.populate import (
     DEFAULT_CACHE,
@@ -388,6 +389,9 @@ def export_delta(database: Path, snapshot: Path, output: Path) -> dict[str, Any]
         "songs": songs,
         "dimensions": dimensions,
         "relations": relations,
+        # Execute after applying all rows, so the snapshot also contains the
+        # destination's pre-existing catalog rather than just the new songs.
+        "catalog_runtime_refresh_sql": SNAPSHOT_REFRESH_SQL.strip(),
         "excludes": [
             "provider response caches",
             "discovery manifests",

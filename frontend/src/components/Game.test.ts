@@ -22,6 +22,7 @@ import {
   potentialPointsForAttempt,
   filterCountryOptions,
   shouldAutoOpenTutorial,
+  shouldSearchSongs,
   type RoundResponse,
   type CountryOption,
 } from "./Game";
@@ -40,8 +41,17 @@ describe("playing defaults", () => {
   });
 });
 
+describe("song search request eligibility", () => {
+  it("preserves empty browsing while avoiding one-character searches", () => {
+    expect(shouldSearchSongs("")).toBe(true);
+    expect(shouldSearchSongs("  ")).toBe(true);
+    expect(shouldSearchSongs(" a ")).toBe(false);
+    expect(shouldSearchSongs(" ab ")).toBe(true);
+  });
+});
+
 describe("round prefetch queue", () => {
-  it("fetches two unique future rounds with progressive exclusions", async () => {
+  it("fetches only one future round by default", async () => {
     const queueRef = { current: [] as RoundResponse[] };
     const excludedIdsRef = { current: [10] };
     const requests: number[][] = [];
@@ -55,9 +65,9 @@ describe("round prefetch queue", () => {
       return rounds.shift() ?? null;
     });
 
-    expect(requests).toEqual([[10], [10, 20]]);
-    expect(queueRef.current.map(({ song_id }) => song_id)).toEqual([20, 30]);
-    expect(excludedIdsRef.current).toEqual([10, 20, 30]);
+    expect(requests).toEqual([[10]]);
+    expect(queueRef.current.map(({ song_id }) => song_id)).toEqual([20]);
+    expect(excludedIdsRef.current).toEqual([10, 20]);
   });
 
   it("preserves a consumed queue while its next request is in flight", async () => {

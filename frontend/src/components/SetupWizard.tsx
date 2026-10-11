@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 
+import { PrefetchCache } from "../lib/prefetchCache";
 import "./SetupWizard.css";
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -162,52 +163,59 @@ export default function SetupWizard({
   );
   const currentStep = STEPS[stepIndex];
 
+  const currentContextKey = JSON.stringify(createFilterContextRequest(filters));
+  const latestRef = useRef({ filters, defaults, onChange });
+  latestRef.current = { filters, defaults, onChange };
+
   useEffect(() => {
     if (!metadata) return;
-    const contextRequest = createFilterContextRequest(filters);
-    const contextKey = JSON.stringify(contextRequest);
+    let cancelled = false;
     setResolvedContextKey(null);
-    const controller = new AbortController();
     const timeout = window.setTimeout(async () => {
       try {
-        const response = await fetch(contextualFiltersEndpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: contextKey,
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error("Contextual filters failed");
-        const nextMetadata = (await response.json()) as SetupFilterMetadata;
+        const nextMetadata = await requestFilterContext(
+          contextualFiltersEndpoint,
+          currentContextKey,
+        );
+        if (
+          cancelled ||
+          JSON.stringify(createFilterContextRequest(latestRef.current.filters)) !==
+            currentContextKey
+        )
+          return;
         setContextMetadata(nextMetadata);
-        setResolvedContextKey(contextKey);
+        setResolvedContextKey(currentContextKey);
         if (nextMetadata.song_count > 0) {
-          const reconciled = reconcileContextualFilters(filters, nextMetadata, defaults);
-          if (!filtersEqual(reconciled, filters)) onChange(reconciled);
+          const latest = latestRef.current;
+          const reconciled = reconcileContextualFilters(
+            latest.filters,
+            nextMetadata,
+            latest.defaults,
+          );
+          if (!filtersEqual(reconciled, latest.filters)) latest.onChange(reconciled);
         }
-      } catch (contextError) {
-        if (!(contextError instanceof DOMException && contextError.name === "AbortError")) {
-          setContextMetadata(null);
-        }
+      } catch {
+        if (!cancelled) setContextMetadata(null);
       }
     }, 100);
     return () => {
       window.clearTimeout(timeout);
-      controller.abort();
+      // The cache owns shared requests; this subscriber only ignores stale results.
+      cancelled = true;
     };
-  }, [contextualFiltersEndpoint, defaults, filters, metadata, onChange]);
+  }, [contextualFiltersEndpoint, currentContextKey, metadata]);
 
-  const currentContextKey = JSON.stringify(createFilterContextRequest(filters));
   const contextIsCurrent = resolvedContextKey === currentContextKey;
 
   function choosePreset(preset: SetupPreset) {
     const nextFilters = resolvePreset(preset, metadata);
-    onChange(nextFilters);
+    if (!filtersEqual(nextFilters, filters)) onChange(nextFilters);
     setSelectedPreset(preset.id);
     setView("review");
   }
 
   function chooseCustom() {
-    onChange(defaults);
+    if (!filtersEqual(defaults, filters)) onChange(defaults);
     setSelectedPreset(null);
     setStepIndex(0);
     setView("custom");
@@ -687,18 +695,49 @@ interface RangeStepProps {
   onChange: (low: number, high: number) => void;
 }
 
-function RangeStep({ label, min, max, low, high, onChange }: RangeStepProps) {
+export function RangeStep({ label, min, max, low, high, onChange }: RangeStepProps) {
+  const [draft, setDraft] = useState({ low, high });
+  const draftRef = useRef(draft);
+  const committedRef = useRef({ low, high });
+  useEffect(() => {
+    const next = { low, high };
+    draftRef.current = next;
+    committedRef.current = next;
+    setDraft(next);
+  }, [low, high]);
+  function updateDraft(nextLow: number, nextHigh: number) {
+    const next = { low: nextLow, high: nextHigh };
+    draftRef.current = next;
+    setDraft(next);
+  }
+  function commit() {
+    const next = draftRef.current;
+    const previous = committedRef.current;
+    if (next.low === previous.low && next.high === previous.high) return;
+    committedRef.current = next;
+    onChange(next.low, next.high);
+  }
+  const commitEvents = {
+    onPointerDown: (event: React.PointerEvent<HTMLInputElement>) =>
+      event.currentTarget.setPointerCapture(event.pointerId),
+    onPointerUp: commit,
+    onPointerCancel: commit,
+    onKeyUp: commit,
+    onBlur: commit,
+  };
   const span = Math.max(1, max - min);
   const style = {
-    "--setup-range-start": `${((low - min) / span) * 100}%`,
-    "--setup-range-end": `${((high - min) / span) * 100}%`,
+    "--setup-range-start": `${((draft.low - min) / span) * 100}%`,
+    "--setup-range-end": `${((draft.high - min) / span) * 100}%`,
   } as CSSProperties;
 
   return (
     <div className="setup-range-step" style={style}>
       <div className="setup-range-readout">
         <span>{label}</span>
-        <output>{low === min && high === max ? "Any" : `${low} — ${high}`}</output>
+        <output>
+          {draft.low === min && draft.high === max ? "Any" : `${draft.low} — ${draft.high}`}
+        </output>
       </div>
       <div className="setup-dual-range">
         <div aria-hidden="true" />
@@ -707,18 +746,24 @@ function RangeStep({ label, min, max, low, high, onChange }: RangeStepProps) {
           type="range"
           min={min}
           max={max}
-          value={low}
+          value={draft.low}
+          {...commitEvents}
           aria-label={`Minimum ${label.toLocaleLowerCase()}`}
-          onChange={(event) => onChange(Math.min(Number(event.target.value), high), high)}
+          onChange={(event) =>
+            updateDraft(Math.min(Number(event.target.value), draft.high), draft.high)
+          }
         />
         <input
           className="setup-range-high"
           type="range"
           min={min}
           max={max}
-          value={high}
+          value={draft.high}
+          {...commitEvents}
           aria-label={`Maximum ${label.toLocaleLowerCase()}`}
-          onChange={(event) => onChange(low, Math.max(Number(event.target.value), low))}
+          onChange={(event) =>
+            updateDraft(draft.low, Math.max(Number(event.target.value), draft.low))
+          }
         />
       </div>
       <div className="setup-range-limits" aria-hidden="true">
@@ -785,14 +830,31 @@ export function formatSongCount(count: number): string {
 
 export function createFilterContextRequest(filters: SetupFilters) {
   return {
-    genres: filters.genres,
-    countries: filters.countries,
+    genres: [...new Set(filters.genres)].sort(),
+    countries: [...new Set(filters.countries)].sort(),
     artist_id: filters.artist?.id ?? null,
     year_min: filters.yearMin,
     year_max: filters.yearMax,
     popularity_min: filters.popularityMin,
     popularity_max: filters.popularityMax,
   };
+}
+
+const contextCache = new PrefetchCache<SetupFilterMetadata>(24, 300_000);
+
+export function requestFilterContext(
+  endpoint: string,
+  contextKey: string,
+): Promise<SetupFilterMetadata> {
+  return contextCache.get(`${endpoint}:${contextKey}`, async () => {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: contextKey,
+    });
+    if (!response.ok) throw new Error("Contextual filters failed");
+    return response.json();
+  });
 }
 
 export function clearDownstreamFilters(

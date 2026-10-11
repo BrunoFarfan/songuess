@@ -2,6 +2,19 @@ import { describe, expect, it, vi } from "vitest";
 import { PrefetchCache } from "./prefetchCache";
 
 describe("prefetch cache", () => {
+  it("refreshes completed values when their TTL expires", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(0);
+    try {
+      const cache = new PrefetchCache<number>(24, 300);
+      await expect(cache.get("context", () => Promise.resolve(1))).resolves.toBe(1);
+      clock.mockReturnValue(299);
+      await expect(cache.get("context", () => Promise.resolve(2))).resolves.toBe(1);
+      clock.mockReturnValue(300);
+      await expect(cache.get("context", () => Promise.resolve(2))).resolves.toBe(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
   it("reuses a prefetch both while pending and after it completes", async () => {
     const cache = new PrefetchCache<number>();
     let resolve!: (value: number) => void;

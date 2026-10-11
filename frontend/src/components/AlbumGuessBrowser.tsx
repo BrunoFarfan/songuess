@@ -160,6 +160,7 @@ export default function AlbumGuessBrowser({
 }: AlbumGuessBrowserProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [navigatedQuery, setNavigatedQuery] = useState<string | null>(null);
   const [Scene, setScene] = useState<typeof import("./AlbumCarouselScene").default | null>(null);
   const [sceneReady, setSceneReady] = useState(false);
   const [sceneMode, setSceneMode] = useState<"3d" | "css" | null>(null);
@@ -234,6 +235,7 @@ export default function AlbumGuessBrowser({
     const selectedIndex = selectedResult?.searchIndex;
     if (previousQueryRef.current !== normalizedQuery) {
       previousQueryRef.current = normalizedQuery;
+      setNavigatedQuery(null);
       pendingActiveIndexRef.current = null;
       queuedNavigationRef.current = null;
       navigationBusyRef.current = false;
@@ -268,12 +270,21 @@ export default function AlbumGuessBrowser({
   }, [activeResult]);
 
   useEffect(() => {
-    if (!onNeedIndex || totalCount <= 0) return;
-    for (let offset = -VISIBLE_ALBUM_COUNT; offset <= VISIBLE_ALBUM_COUNT; offset += 1) {
+    if (!onNeedIndex || totalCount <= 0 || navigatedQuery !== normalizedQuery) return;
+    const radius = Math.floor(VISIBLE_ALBUM_COUNT / 2);
+    for (let offset = -radius; offset <= radius; offset += 1) {
       const index = advanceAlbumIndex(boundedActiveIndex, offset, totalCount, excludedIndexSet);
       if (!resultByIndex.has(index)) void onNeedIndex(index);
     }
-  }, [boundedActiveIndex, excludedIndexSet, onNeedIndex, resultByIndex, totalCount]);
+  }, [
+    boundedActiveIndex,
+    excludedIndexSet,
+    navigatedQuery,
+    normalizedQuery,
+    onNeedIndex,
+    resultByIndex,
+    totalCount,
+  ]);
 
   const visibleResults = useMemo(() => {
     return visibleAlbumIndexes(boundedActiveIndex, totalCount, excludedIndexSet).map(
@@ -314,6 +325,7 @@ export default function AlbumGuessBrowser({
   applyNavigationRef.current = applyNavigation;
 
   function moveBy(delta: number, focus = false) {
+    setNavigatedQuery(normalizedQuery);
     if (totalCount <= excludedIndexSet.size) return;
     const startingIndex =
       pendingActiveIndexRef.current ?? queuedNavigationRef.current?.index ?? activeIndexRef.current;
@@ -329,6 +341,7 @@ export default function AlbumGuessBrowser({
   }
 
   function moveToAbsolute(index: number, focus = false) {
+    setNavigatedQuery(normalizedQuery);
     const nextIndex = wrapAlbumIndex(index, totalCount);
     const nextResult = resultByIndex.get(nextIndex);
     if (!nextResult) {

@@ -8,11 +8,13 @@ from dataset.populate import initialize_database
 
 from app import catalog_cache
 from app.catalog_cache import CatalogCache, cache_catalog
+from app.catalog_snapshot import SNAPSHOT_REFRESH_SQL
 from app.database import D1Database, SQLiteDatabase, connect
 from app.models import FilterContextRequest, RoundRequest
 from app.repository import (
     choose_round_async,
     get_contextual_filter_metadata_async,
+    get_filter_metadata_async,
     search_songs_async,
 )
 from app.search_index import rebuild_search_index
@@ -63,6 +65,7 @@ def catalog(tmp_path: Path):
             ],
         )
         rebuild_search_index(connection)
+        connection.executescript(SNAPSHOT_REFRESH_SQL)
         yield connection
 
 
@@ -111,7 +114,7 @@ def test_browse_pages_share_count_and_use_ordered_index(catalog) -> None:
     second, _ = asyncio.run(search_songs_async(database, "", limit=2, offset=2))
     assert [song.id for song in first + second] == [4, 2, 3, 1]
     assert total == 4
-    assert len(binding.calls) == 3  # One count and two ordered page reads.
+    assert len(binding.calls) == 3  # One snapshot read and two ordered page reads.
     asyncio.run(search_songs_async(database, "", limit=2))
     assert len(binding.calls) == 3
     plan = catalog.execute("EXPLAIN QUERY PLAN " + binding.calls[-1], (2, 2)).fetchall()
@@ -138,6 +141,7 @@ def test_browse_from_either_end_preserves_pages(catalog, offset, limit) -> None:
 def test_reverse_browse_respects_disabled_songs_and_duplicate_titles(catalog) -> None:
     # A stale search row must not change eligibility or ascending title/artist/ID order.
     catalog.execute("UPDATE songs SET enabled = 0 WHERE id = 1")
+    catalog.executescript(SNAPSHOT_REFRESH_SQL)
     results, total = asyncio.run(search_songs_async(D1Database(LocalD1(catalog)), "", 2, 1))
     assert total == 3
     assert [song.id for song in results] == [2, 3]
@@ -149,7 +153,7 @@ def test_round_pool_preserves_uniform_choices_and_filter_boundaries(catalog, mon
     choices = []
 
     def choose(pool):
-        choices.append({song[0] for song in pool})
+        choices.append(set(pool))
         return pool[-1]
 
     monkeypatch.setattr("app.repository.secrets.choice", choose)
@@ -160,11 +164,11 @@ def test_round_pool_preserves_uniform_choices_and_filter_boundaries(catalog, mon
     )
     assert choices == [{1, 2, 3}, {1, 2, 3} - {first.song_id}]
     assert second.song_id != first.song_id
-    assert len(binding.calls) == 1
+    assert len(binding.calls) == 3  # Snapshot plus two primary-key preview reads.
     other = request.model_copy(update={"year_max": 2020, "popularity_min": 0})
     asyncio.run(choose_round_async(database, other))
     assert choices[-1] == {1, 2, 3, 4}
-    assert len(binding.calls) == 2
+    assert len(binding.calls) == 4
 
 
 def test_context_cache_refreshes_and_sqlite_stays_uncached(catalog, monkeypatch) -> None:
@@ -175,10 +179,123 @@ def test_context_cache_refreshes_and_sqlite_stays_uncached(catalog, monkeypatch)
     request = FilterContextRequest()
     assert asyncio.run(get_contextual_filter_metadata_async(database, request)).song_count == 4
     catalog.execute("UPDATE songs SET enabled = 0 WHERE id = 4")
+    catalog.executescript(SNAPSHOT_REFRESH_SQL)
     assert asyncio.run(get_contextual_filter_metadata_async(database, request)).song_count == 4
-    assert len(binding.calls) == 5
+    assert len(binding.calls) == 1
     local = SQLiteDatabase(catalog)
     assert asyncio.run(get_contextual_filter_metadata_async(local, request)).song_count == 3
     now[0] = 5
     assert asyncio.run(get_contextual_filter_metadata_async(database, request)).song_count == 3
-    assert len(binding.calls) == 10
+    assert len(binding.calls) == 2
+
+
+def test_concurrent_cache_misses_share_load_and_cancelled_waiter_does_not_cancel_load() -> None:
+    async def scenario():
+        class Database:
+            catalog_cache = CatalogCache()
+
+        database = Database()
+        started = asyncio.Event()
+        finish = asyncio.Event()
+        calls = []
+
+        @cache_catalog()
+        async def load(_database):
+            calls.append(1)
+            started.set()
+            await finish.wait()
+            return 42
+
+        first = asyncio.create_task(load(database))
+        await started.wait()
+        second = asyncio.create_task(load(database))
+        await asyncio.sleep(0)
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        finish.set()
+        assert await second == 42
+        assert await load(database) == 42
+        assert calls == [1]
+        assert database.catalog_cache.inflight == {}
+
+    asyncio.run(scenario())
+
+
+def test_snapshot_matches_sql_filters_and_shares_one_read_across_requests(catalog) -> None:
+    catalog.executemany("INSERT INTO genres (id, name) VALUES (?, ?)", [(1, "pop"), (2, "rock")])
+    catalog.executemany("INSERT INTO countries (id, code) VALUES (?, ?)", [(1, "US"), (2, "CL")])
+    catalog.execute("INSERT INTO artists (id, musicbrainz_id, name) VALUES (1, 'artist-a', 'A')")
+    catalog.executemany("INSERT INTO song_genres VALUES (?, ?)", [(1, 1), (2, 1), (2, 2), (4, 2)])
+    catalog.executemany("INSERT INTO song_countries VALUES (?, ?)", [(1, 1), (2, 2), (4, 2)])
+    catalog.executemany(
+        "INSERT INTO song_artists (song_id, artist_id, credit_order, credited_name) "
+        "VALUES (?, 1, 0, 'A')",
+        [(1,), (2,)],
+    )
+    catalog.executescript(SNAPSHOT_REFRESH_SQL)
+    binding = LocalD1(catalog)
+    remote = D1Database(binding)
+    local = SQLiteDatabase(catalog)
+    assert asyncio.run(get_filter_metadata_async(remote)) == asyncio.run(
+        get_filter_metadata_async(local)
+    )
+    for selection in [
+        {},
+        {"artist_id": "artist-a"},
+        {"artist_id": "missing"},
+        {"genres": [" POP ", "rock"], "countries": ["cl"]},
+        {"genres": ["pop"], "countries": ["US"], "year_min": 2005},
+        {"year_min": 2000, "year_max": 2005, "popularity_min": 90},
+        {"genres": ["missing"]},
+        {"countries": ["DE"]},
+    ]:
+        request = FilterContextRequest(**selection)
+        assert asyncio.run(get_contextual_filter_metadata_async(remote, request)) == asyncio.run(
+            get_contextual_filter_metadata_async(local, request)
+        )
+    assert len(binding.calls) == 1
+    assert "catalog_runtime" in binding.calls[0]
+
+
+def test_round_refreshes_stale_snapshot_and_revalidates_live_filters(catalog, monkeypatch) -> None:
+    binding = LocalD1(catalog)
+    remote = D1Database(binding)
+    request = RoundRequest(year_min=1990, year_max=2005, popularity_min=50, popularity_max=100)
+    monkeypatch.setattr("app.repository.secrets.choice", lambda pool: pool[0])
+    assert asyncio.run(choose_round_async(remote, request)).song_id == 1
+    catalog.execute("UPDATE songs SET release_year = 2015 WHERE id = 1")
+    catalog.executescript(SNAPSHOT_REFRESH_SQL)
+    assert asyncio.run(choose_round_async(remote, request)).song_id == 2
+    assert sum("catalog_runtime" in sql for sql in binding.calls) == 2
+
+
+def test_clear_prevents_an_old_inflight_load_from_restoring_stale_values() -> None:
+    async def scenario():
+        class Database:
+            catalog_cache = CatalogCache()
+
+        database = Database()
+        started = asyncio.Event()
+        finish = asyncio.Event()
+        calls = []
+
+        @cache_catalog()
+        async def load(_database):
+            calls.append(1)
+            if len(calls) == 1:
+                started.set()
+                await finish.wait()
+                return "old"
+            return "new"
+
+        old = asyncio.create_task(load(database))
+        await started.wait()
+        database.catalog_cache.clear()
+        assert await load(database) == "new"
+        finish.set()
+        assert await old == "old"
+        assert await load(database) == "new"
+        assert len(calls) == 2
+
+    asyncio.run(scenario())
