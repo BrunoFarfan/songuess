@@ -592,3 +592,23 @@
     animation-delay: 0ms;
   }
 }
+
+/* A reveal starts only after choosing its renderer; late assets cannot replay it. */
+.vinyl-sleeve-reveal.is-reveal-pending .vinyl-sleeve-reveal__sleeve,
+.vinyl-sleeve-reveal.is-reveal-pending .vinyl-sleeve-reveal__spine,
+.vinyl-sleeve-reveal.is-reveal-pending .vinyl-sleeve-reveal__caption,
+.vinyl-sleeve-reveal.is-reveal-pending .vinyl-sleeve-reveal__stage::before,
+.vinyl-sleeve-reveal.is-reveal-pending .vinyl-sleeve-reveal__stage::after {
+  animation: none;
+}
+.vinyl-sleeve-reveal.is-reveal-pending
+  .vinyl-sleeve-reveal__caption:has(.vinyl-sleeve-reveal__song) {
+  opacity: 0;
+}
+.vinyl-sleeve-reveal.is-css-reveal .vinyl-sleeve-reveal__scene {
+  visibility: hidden;
+}
+
+.vinyl-sleeve-reveal.is-reveal-pending .vinyl-sleeve-reveal__confetti span {
+  animation: none;
+}

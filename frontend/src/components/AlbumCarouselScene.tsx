@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { loadArtworkTexture, loadSceneModel } from "../lib/sceneAssets";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
 export type CarouselSleeve = { index: number; offset: number; artworkUrl?: string | null };
@@ -182,8 +182,7 @@ export default function AlbumCarouselScene({
         record.material.needsUpdate = true;
         return;
       }
-      void new THREE.TextureLoader()
-        .loadAsync(url)
+      void loadArtworkTexture(url)
         .then((texture) => {
           if (disposed || request !== record.request || ![...records.values()].includes(record)) {
             texture.dispose();
@@ -446,8 +445,7 @@ export default function AlbumCarouselScene({
       for (const material of materials) material.dispose();
       for (const texture of textures) texture.dispose();
     }
-    void new GLTFLoader()
-      .loadAsync("/models/songuess/sleeve.glb")
+    void loadSceneModel("/models/songuess/sleeve.glb")
       .then((asset) => {
         if (disposed) {
           disposeTemplate(asset.scene);

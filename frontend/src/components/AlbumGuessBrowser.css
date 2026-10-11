@@ -573,3 +573,8 @@
     animation: none;
   }
 }
+
+/* Show one renderer from the first visible frame, including on slow devices. */
+.album-guess-browser.is-scene-pending .album-guess-item {
+  visibility: hidden;
+}

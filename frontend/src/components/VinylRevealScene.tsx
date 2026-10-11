@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { loadArtworkTexture, loadSceneModel } from "../lib/sceneAssets";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
 type Props = {
@@ -8,7 +8,7 @@ type Props = {
   revealed: boolean;
   revealStartedAt: number;
   isPlaying: boolean;
-  onReady: (ready: boolean) => void;
+  onReady: (ready: boolean, artworkUrl?: string | null) => void;
   onVinylReady: (ready: boolean) => void;
 };
 
@@ -235,9 +235,8 @@ export default function VinylRevealScene({
     const observer = new ResizeObserver(() => resize());
     observer.observe(host);
     wakeRef.current = wake;
-    const loader = new GLTFLoader();
     async function loadModel(path: string) {
-      const asset = await loader.loadAsync(path);
+      const asset = await loadSceneModel(path);
       track(asset.scene);
       if (disposed) {
         disposeResources();
@@ -260,12 +259,11 @@ export default function VinylRevealScene({
       if (!(artwork instanceof THREE.Mesh)) return;
       if (!url) {
         artworkReady = true;
-        onReady(true);
+        onReady(true, url);
         wake();
         return;
       }
-      void new THREE.TextureLoader()
-        .loadAsync(url)
+      void loadArtworkTexture(url)
         .then((texture) => {
           if (disposed || request !== artworkRequest) {
             texture.dispose();
@@ -294,8 +292,9 @@ export default function VinylRevealScene({
           textures.add(texture);
           materials.add(material);
           artwork.material = material;
+          renderer.initTexture(texture);
           artworkReady = true;
-          onReady(true);
+          onReady(true, url);
           wake();
         })
         .catch(() => {
