@@ -255,14 +255,15 @@ end scan the same index backward and reverse the results into ascending order, a
 forward offset. Catalog pages beyond the first are loaded when the player navigates.
 
 Migration `014_runtime_catalog.sql` backfills a versioned, compact catalog snapshot into the
-single `catalog_runtime` row. D1 loads this row once per Worker isolate cache window; global filter
+single `catalog_runtime` row. D1 caches this row for each Worker isolate cache window; global filter
 metadata, browse totals, contextual facets, and eligible round IDs then use the snapshot without
 catalog scans. Each round applies recent-song exclusions in memory, chooses uniformly at random,
 and fetches only the selected preview by primary key. Facets cache only their actual upstream
 dependencies, with at most 128 entries and 50,000 retained memberships.
 
-The result cache holds at most 128 entries and 30,000 result rows for five minutes and shares
-concurrent loads; cancelling one waiting request does not cancel another visitor's shared load.
+The result cache holds at most 128 entries and 30,000 result rows for five minutes. Worker cache
+misses load in the requesting task so binding I/O remains within that request's lifetime;
+concurrent cold requests can each read the one-row snapshot.
 Local SQLite stays uncached and uses indexed existence checks for genre/country facets. Catalog
 updates become visible on cache expiry or a Worker restart. Full exports refresh the snapshot
 after all catalog rows are inserted; direct SQL edits also require the refresh statement from

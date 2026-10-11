@@ -10,7 +10,7 @@ from app.catalog_cache import CatalogCache
 from app.config import Settings, get_settings
 
 # Each deployed Worker binds one catalog database. Never share this with local SQLite.
-_worker_catalog_cache = CatalogCache()
+_worker_catalog_cache = CatalogCache(coalesce=False)
 
 
 def connect(database_path: Path | None = None) -> sqlite3.Connection:
@@ -68,7 +68,9 @@ class D1Database:
 
     def __init__(self, binding: Any, *, catalog_cache: CatalogCache | None = None) -> None:
         self.binding = binding
-        self.catalog_cache = catalog_cache if catalog_cache is not None else CatalogCache()
+        self.catalog_cache = (
+            catalog_cache if catalog_cache is not None else CatalogCache(coalesce=False)
+        )
 
     def _prepare(self, statement: str, parameters: Sequence[object]) -> Any:
         prepared = self.binding.prepare(statement)
