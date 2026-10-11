@@ -306,6 +306,7 @@ def test_worker_cache_loads_in_the_request_task_and_cancellation_allows_retry() 
     from app.database import _worker_catalog_cache
 
     assert _worker_catalog_cache.coalesce is False
+    assert D1Database(None).catalog_cache.coalesce is False
 
     async def scenario():
         class Database:
