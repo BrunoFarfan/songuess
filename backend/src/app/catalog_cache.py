@@ -1,5 +1,6 @@
 """Bounded, short-lived catalog results in a single Worker isolate."""
 
+import asyncio
 import json
 from collections import OrderedDict
 from collections.abc import Callable
@@ -19,6 +20,8 @@ class CatalogCache:
         self.max_rows = max_rows
         self.entries: OrderedDict[str, tuple[float, Any, int]] = OrderedDict()
         self.rows = 0
+        self.inflight: dict[str, asyncio.Task] = {}
+        self.generation = 0
 
     def get(self, key: str) -> Any:
         entry = self.entries.get(key)
@@ -33,6 +36,12 @@ class CatalogCache:
 
     def _remove(self, key: str) -> None:
         self.rows -= self.entries.pop(key)[2]
+
+    def clear(self) -> None:
+        self.generation += 1
+        self.entries.clear()
+        self.inflight.clear()
+        self.rows = 0
 
     def put(self, key: str, value: Any, rows: int) -> None:
         if rows > self.max_rows:
@@ -76,8 +85,27 @@ def cache_catalog(*, row_count: Callable[[Any], int] = lambda _: 1) -> Callable:
             )
             value = cache.get(key)
             if value is _MISSING:
-                value = await function(database, *args, **kwargs)
-                cache.put(key, value, max(1, row_count(value)))
+                task = cache.inflight.get(key)
+                if task is None:
+                    generation = cache.generation
+
+                    async def load() -> Any:
+                        try:
+                            result = await function(database, *args, **kwargs)
+                            if generation == cache.generation:
+                                cache.put(key, result, max(1, row_count(result)))
+                            return result
+                        finally:
+                            if cache.inflight.get(key) is asyncio.current_task():
+                                cache.inflight.pop(key, None)
+
+                    task = asyncio.create_task(load())
+                    cache.inflight[key] = task
+                    # Retrieve errors even when every waiting request was cancelled.
+                    task.add_done_callback(
+                        lambda done: None if done.cancelled() else done.exception()
+                    )
+                value = await asyncio.shield(task)
             return value
 
         return cached

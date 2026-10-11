@@ -18,7 +18,7 @@ import {
   type PersonalStats,
 } from "../lib/roundHistory";
 import { PrefetchCache } from "../lib/prefetchCache";
-import AlbumGuessBrowser, { visibleAlbumIndexes } from "./AlbumGuessBrowser";
+import AlbumGuessBrowser from "./AlbumGuessBrowser";
 import SetupWizard, { type ArtistOption, type SetupFilters } from "./SetupWizard";
 import Tutorial, { hasSeenTutorial } from "./Tutorial";
 import VinylSleeveReveal from "./VinylSleeveReveal";
@@ -27,7 +27,11 @@ import "./VinylControls.css";
 const SNIPPET_DURATIONS = [1, 2, 4, 7, 11, 15] as const;
 const CURRENT_YEAR = new Date().getFullYear();
 const SEARCH_PAGE_SIZE = 40;
-const ROUND_PREFETCH_COUNT = 2;
+const ROUND_PREFETCH_COUNT = 1;
+
+export function shouldSearchSongs(query: string): boolean {
+  return query.trim().length === 0 || query.trim().length >= 2;
+}
 export const DEFAULT_VOLUME = 0.5;
 
 export function potentialPointsForAttempt(attempt: number): number {
@@ -181,28 +185,8 @@ function requestReveal(songId: number): Promise<RevealedSong> {
 }
 
 async function prefetchCarousel() {
-  const [first, assets] = await Promise.all([
-    requestSearchPage(0, ""),
-    import("../lib/sceneAssets"),
-    import("./AlbumCarouselScene"),
-  ]);
-  const tail = Math.floor(Math.max(0, first.total - 1) / SEARCH_PAGE_SIZE) * SEARCH_PAGE_SIZE;
-  const offsets = [
-    ...new Set([0, Math.min(SEARCH_PAGE_SIZE, tail), Math.max(0, tail - SEARCH_PAGE_SIZE), tail]),
-  ];
-  const pages = await Promise.all(offsets.map((offset) => requestSearchPage(offset, "")));
-  // Warm every initially visible sleeve, including the wrapped left side.
-  const visibleIndexes = new Set(visibleAlbumIndexes(0, first.total));
-  await Promise.allSettled(
-    pages.flatMap((page) =>
-      page.items.flatMap((item, index) => {
-        const position = page.offset + index;
-        return item.artwork_url && visibleIndexes.has(position)
-          ? [assets.preloadArtwork(item.artwork_url)]
-          : [];
-      }),
-    ),
-  );
+  // Warm scene code without speculative catalog page reads.
+  await Promise.all([import("../lib/sceneAssets"), import("./AlbumCarouselScene")]);
 }
 
 const defaultFilters: Filters = {
@@ -261,6 +245,7 @@ export default function Game() {
   const excludedSongIdsRef = useRef<number[]>([]);
   const prefetchedRoundsRef = useRef<RoundResponse[]>([]);
   const prefetchPromiseRef = useRef<Promise<void> | null>(null);
+  const prefetchControllerRef = useRef<AbortController | null>(null);
   const isAdvancingRoundRef = useRef(false);
   const recordedGenerationRef = useRef<number | null>(null);
   const roundHistoryRef = useRef<LocalRoundRecord[]>([]);
@@ -469,6 +454,23 @@ export default function Game() {
     if (phase === "revealed" || phase === "loading") void prefetchCarousel().catch(() => {});
   }, [phase]);
 
+  useEffect(() => {
+    if (
+      currentSongId !== null &&
+      ((phase === "playing" && isAudioPlaying) || phase === "revealed")
+    ) {
+      void ensurePrefetchedRounds(activeFiltersRef.current);
+    }
+  }, [currentSongId, isAudioPlaying, phase]);
+
+  useEffect(
+    () => () => {
+      ++playlistGenerationRef.current;
+      prefetchControllerRef.current?.abort();
+    },
+    [],
+  );
+
   const loadSearchPage = useCallback(
     async (
       offset: number,
@@ -531,9 +533,11 @@ export default function Game() {
     loadedSearchPagesRef.current = new Set();
     pendingSearchPagesRef.current = new Set();
     searchTotalCountRef.current = 0;
-    if (phase !== "playing") {
+    setIsLoadingMoreResults(false);
+    const normalizedQuery = query.trim();
+    if (phase !== "playing" || !shouldSearchSongs(normalizedQuery)) {
       setSearchResults([]);
-      setSearchResultsQuery("");
+      setSearchResultsQuery(normalizedQuery);
       setIsSearching(false);
       setIsLoadingMoreResults(false);
       setSearchTotalCount(0);
@@ -542,10 +546,9 @@ export default function Game() {
     }
 
     setIsSearching(true);
-    const controller = new AbortController();
+    let cancelled = false;
     const timeout = window.setTimeout(
       async () => {
-        const normalizedQuery = query.trim();
         try {
           const payload = await requestSearchPage(0, normalizedQuery);
           if (generation !== searchGenerationRef.current) return;
@@ -565,29 +568,25 @@ export default function Game() {
           );
           setSearchTotalCount(payload.total);
           setExcludedSearchIndexes(excludedIndexes);
-          if (payload.total > SEARCH_PAGE_SIZE) {
-            const tailOffset =
-              Math.floor((payload.total - 1) / SEARCH_PAGE_SIZE) * SEARCH_PAGE_SIZE;
-            void loadSearchPage(tailOffset, normalizedQuery, generation);
-          }
         } catch (error) {
-          if (!(error instanceof DOMException && error.name === "AbortError")) {
+          if (!cancelled && generation === searchGenerationRef.current) {
             setSearchResultsQuery(normalizedQuery);
             setSearchResults([]);
             setSearchTotalCount(0);
           }
         } finally {
-          if (!controller.signal.aborted) setIsSearching(false);
+          if (!cancelled && generation === searchGenerationRef.current) setIsSearching(false);
         }
       },
-      query.trim() ? 250 : 0,
+      normalizedQuery ? 350 : 0,
     );
 
     return () => {
       window.clearTimeout(timeout);
-      controller.abort();
+      cancelled = true;
+      if (searchGenerationRef.current === generation) ++searchGenerationRef.current;
     };
-  }, [loadSearchPage, phase, query]);
+  }, [phase, query]);
 
   const loadSearchResultAtIndex = useCallback(
     (index: number) => {
@@ -635,6 +634,8 @@ export default function Game() {
 
   function invalidatePrefetchedRounds() {
     ++playlistGenerationRef.current;
+    prefetchControllerRef.current?.abort();
+    prefetchControllerRef.current = null;
     prefetchedRoundsRef.current = [];
     prefetchPromiseRef.current = null;
   }
@@ -643,6 +644,8 @@ export default function Game() {
     if (prefetchPromiseRef.current) return prefetchPromiseRef.current;
 
     const playlistGeneration = playlistGenerationRef.current;
+    const controller = new AbortController();
+    prefetchControllerRef.current = controller;
     let task: Promise<void>;
     task = fillRoundPrefetchQueue(
       prefetchedRoundsRef,
@@ -653,9 +656,11 @@ export default function Game() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(createRoundRequest(filters, excludeIds)),
+            signal: controller.signal,
           });
           if (playlistGeneration !== playlistGenerationRef.current || !response.ok) return null;
-          return (await response.json()) as RoundResponse;
+          const round = (await response.json()) as RoundResponse;
+          return playlistGeneration === playlistGenerationRef.current ? round : null;
         } catch {
           return null;
         }
@@ -715,7 +720,6 @@ export default function Game() {
       const nextExclusions = [...usedExclusions, round.song_id];
       excludedSongIdsRef.current = nextExclusions;
       setPhase("playing");
-      void ensurePrefetchedRounds(filters);
     } catch (error) {
       if (generation !== roundGenerationRef.current) return;
       setCurrentSongId(null);
@@ -743,7 +747,6 @@ export default function Game() {
 
       prefetchedRoundsRef.current = remainingRounds;
       activateRound(nextRound, activeFiltersRef.current);
-      void ensurePrefetchedRounds(activeFiltersRef.current);
     } finally {
       isAdvancingRoundRef.current = false;
     }
@@ -889,7 +892,13 @@ export default function Game() {
   }
 
   function submitGuess() {
-    if (!selectedGuess || currentSongId === null) return;
+    if (
+      !selectedGuess ||
+      currentSongId === null ||
+      query.trim() !== searchResultsQuery ||
+      !shouldSearchSongs(query)
+    )
+      return;
     if (selectedGuess.id === currentSongId) {
       void finishRound("correct");
       return;
@@ -922,6 +931,7 @@ export default function Game() {
   }
 
   function selectSearchResult(result: SearchResult) {
+    if (query.trim() !== searchResultsQuery || !shouldSearchSongs(query)) return;
     setSelectedGuess(result);
   }
 
@@ -1245,7 +1255,10 @@ export default function Game() {
                               </svg>
                             </button>
                           )}
-                          {phase === "playing" && (
+                          {phase === "playing" && !shouldSearchSongs(query) && (
+                            <p role="status">Type at least 2 characters to search.</p>
+                          )}
+                          {phase === "playing" && shouldSearchSongs(query) && (
                             <AlbumGuessBrowser
                               results={searchResults}
                               query={searchResultsQuery}
@@ -1262,7 +1275,12 @@ export default function Game() {
                         <button
                           className="primary-action"
                           type="button"
-                          disabled={!selectedGuess || phase === "revealed"}
+                          disabled={
+                            !selectedGuess ||
+                            phase === "revealed" ||
+                            query.trim() !== searchResultsQuery ||
+                            !shouldSearchSongs(query)
+                          }
                           onClick={submitGuess}
                         >
                           Guess

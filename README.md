@@ -206,8 +206,11 @@ verification detects unintended changes to the original catalog.
 
 Provider caches and telemetry remain local. `export-delta` contains only new songs, required
 dimension rows, and relationship rows for D1; it explicitly excludes raw provider responses,
-candidate manifests, checkpoints, and metrics. `cleanup-caches` is evidence-gated and defaults to
-a dry run. Apple JSON is removable only after every track and artist-search key exists in the
+candidate manifests, checkpoints, and metrics. After applying every delta row, execute its
+`catalog_runtime_refresh_sql` field on the destination D1 database. This rebuilds the runtime
+snapshot from the whole destination catalog, including existing songs, and changes its version.
+Full SQL exports perform the same refresh after replacing the catalog. `cleanup-caches` is
+evidence-gated and defaults to a dry run. Apple JSON is removable only after every track and artist-search key exists in the
 compact SQLite cache.
 
 The 10,000-song manifest targets 5,000 popular artists and 15 recordings per artist across several
@@ -249,15 +252,26 @@ The runtime search tables in migration `012_runtime_search.sql` return at most 5
 for Python ranking. Migration `013_catalog_browse_order.sql` adds a covering index so empty-query
 browsing traverses catalog order without sorting the full catalog for each page. Pages near the
 end scan the same index backward and reverse the results into ascending order, avoiding a large
-forward offset while preserving first-and-last-page prefetch.
+forward offset. Catalog pages beyond the first are loaded when the player navigates.
 
-The D1 runtime caches catalog counts, search pages, filter metadata, and eligible round pools for
-up to five minutes per Worker isolate. The cache holds at most 128 entries and 30,000 song rows;
-larger pools are fetched without being retained. Each round applies recent-song exclusions to the
-eligible pool and chooses uniformly at random, preserving gameplay randomness. Local SQLite stays
-uncached and uses count plus random offset for rounds. Cache reuse depends on isolate lifetime;
-catalog updates become visible on cache expiry or a Worker restart. Browsing prefetches the first
-and last pages so the carousel is ready for navigation in either direction.
+Migration `014_runtime_catalog.sql` backfills a versioned, compact catalog snapshot into the
+single `catalog_runtime` row. D1 loads this row once per Worker isolate cache window; global filter
+metadata, browse totals, contextual facets, and eligible round IDs then use the snapshot without
+catalog scans. Each round applies recent-song exclusions in memory, chooses uniformly at random,
+and fetches only the selected preview by primary key. Facets cache only their actual upstream
+dependencies, with at most 128 entries and 50,000 retained memberships.
+
+The result cache holds at most 128 entries and 30,000 result rows for five minutes and shares
+concurrent loads; cancelling one waiting request does not cancel another visitor's shared load.
+Local SQLite stays uncached and uses indexed existence checks for genre/country facets. Catalog
+updates become visible on cache expiry or a Worker restart. Full exports refresh the snapshot
+after all catalog rows are inserted; direct SQL edits also require the refresh statement from
+`014_runtime_catalog.sql`. Apply migration 014 before deploying this runtime.
+
+The frontend caches normalized contextual requests across wizard remounts and commits sliders on
+release. Song search requires two characters with a 350ms debounce, while an empty query browses
+the catalog. One next round is prefetched only after playback starts or the current round is
+revealed; carousel tail pages are no longer fetched speculatively.
 
 ### Local Worker validation
 

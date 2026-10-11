@@ -13,6 +13,7 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "backend" / "src"))
 
+from app.catalog_snapshot import SNAPSHOT_REFRESH_SQL  # noqa: E402
 from app.search_index import rebuild_search_index  # noqa: E402
 from dataset.populate import DEFAULT_DATABASE  # noqa: E402
 
@@ -184,6 +185,10 @@ def export_d1(database: Path, output: Path, manifest_path: Path | None = None) -
             table: _rows(connection, table, columns)
             for table, columns in {**APPLICATION_COLUMNS, **DERIVED_SEARCH_COLUMNS}.items()
         }
+        connection.executescript(SNAPSHOT_REFRESH_SQL)
+        snapshot_payload = connection.execute(
+            "SELECT payload FROM catalog_runtime WHERE id = 1"
+        ).fetchone()[0]
 
     # Wrangler's remote D1 bulk importer provides the transaction boundary and
     # rejects explicit BEGIN/COMMIT statements in uploaded SQL files.
@@ -198,7 +203,7 @@ def export_d1(database: Path, output: Path, manifest_path: Path | None = None) -
                 "(" + ", ".join(_sql_literal(value) for value in row) + ")" for row in batch
             )
             statements.append(f"INSERT INTO {table} ({column_list}) VALUES\n{values};")
-    statements.extend(["PRAGMA optimize;", ""])
+    statements.extend([SNAPSHOT_REFRESH_SQL.strip(), "PRAGMA optimize;", ""])
     output.parent.mkdir(parents=True, exist_ok=True)
     sql = "\n".join(statements)
     output.write_text(sql, encoding="utf-8")
@@ -206,6 +211,7 @@ def export_d1(database: Path, output: Path, manifest_path: Path | None = None) -
     manifest = {
         "version": 2,
         "catalog_sha256": _catalog_hash(table_rows),
+        "catalog_runtime_sha256": hashlib.sha256(snapshot_payload.encode("utf-8")).hexdigest(),
         "sql_sha256": hashlib.sha256(sql.encode("utf-8")).hexdigest(),
         "counts": {table: len(rows) for table, rows in table_rows.items()},
         "quality": {

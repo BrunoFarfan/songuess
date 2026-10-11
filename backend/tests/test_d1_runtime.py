@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -62,10 +63,24 @@ def test_d1_adapter_returns_worker_binding_rows() -> None:
     assert rows == [{"id": 1}, {"id": 2}]
 
 
-def test_round_pool_reuses_filters_and_applies_500_exclusions_in_memory() -> None:
+def test_round_snapshot_reuses_filters_and_applies_500_exclusions_in_memory() -> None:
     binding = FakeD1()
-    binding.run_results.append(
-        [{"id": song_id, "preview_url": f"https://audio/{song_id}"} for song_id in (1, 999)]
+    payload = {
+        "songs": [[1, 2000, 50], [999, 2000, 50]],
+        "genres": [],
+        "countries": [],
+        "artists": [],
+        "song_genres": [],
+        "song_countries": [],
+        "song_artists": [],
+        "browse_count": 2,
+    }
+    binding.first_results.extend(
+        [
+            {"version": "test", "payload": json.dumps(payload)},
+            {"id": 999, "preview_url": "https://audio/999"},
+            {"id": 1, "preview_url": "https://audio/1"},
+        ]
     )
     cache = CatalogCache()
 
@@ -84,9 +99,11 @@ def test_round_pool_reuses_filters_and_applies_500_exclusions_in_memory() -> Non
         choose_round_async(D1Database(binding, catalog_cache=cache), _round_request([1, 999]))
     )
     assert exhausted is None
-    assert len(binding.calls) == 1
-    assert len(binding.calls[0][1]) == 4
-    assert "COUNT" not in binding.calls[0][0]
+    assert len(binding.calls) == 3
+    assert "catalog_runtime" in binding.calls[0][0]
+    assert binding.calls[1][1] == (999, 1950, 2026, 0, 100)
+    assert binding.calls[2][1] == (1, 1950, 2026, 0, 100)
+    assert all("COUNT" not in sql for sql, _ in binding.calls)
 
 
 def test_full_d1_export_is_deterministic_and_application_only(tmp_path: Path) -> None:

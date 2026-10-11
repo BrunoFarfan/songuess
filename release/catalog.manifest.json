@@ -1,7 +1,8 @@
 {
   "version": 2,
   "catalog_sha256": "4b2bdbd5d0504e0d7b9d55fe91429d7e5d9501a91b48b805630ea74c44774af7",
-  "sql_sha256": "a903b9fb847ed26075e535e85bf98150eff34bbf4cac3a93014da87fce9188c4",
+  "catalog_runtime_sha256": "8cc6b5578c488a45697c6cc97b4b405548a689c3848bfdc9ba173b44c20eb5f9",
+  "sql_sha256": "9388c9d71673aeac5da0155a18dc8a34267def4071712905b4a86e1ba06a1172",
   "counts": {
     "songs": 10617,
     "artists": 1377,
