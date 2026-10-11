@@ -270,10 +270,11 @@ def test_round_refreshes_stale_snapshot_and_revalidates_live_filters(catalog, mo
     assert sum("catalog_runtime" in sql for sql in binding.calls) == 2
 
 
-def test_clear_prevents_an_old_inflight_load_from_restoring_stale_values() -> None:
+@pytest.mark.parametrize("coalesce", [True, False])
+def test_clear_prevents_an_old_inflight_load_from_restoring_stale_values(coalesce) -> None:
     async def scenario():
         class Database:
-            catalog_cache = CatalogCache()
+            catalog_cache = CatalogCache(coalesce=coalesce)
 
         database = Database()
         started = asyncio.Event()
@@ -297,5 +298,42 @@ def test_clear_prevents_an_old_inflight_load_from_restoring_stale_values() -> No
         assert await old == "old"
         assert await load(database) == "new"
         assert len(calls) == 2
+
+    asyncio.run(scenario())
+
+
+def test_worker_cache_loads_in_the_request_task_and_cancellation_allows_retry() -> None:
+    from app.database import _worker_catalog_cache
+
+    assert _worker_catalog_cache.coalesce is False
+
+    async def scenario():
+        class Database:
+            catalog_cache = CatalogCache(coalesce=False)
+
+        database = Database()
+        started = asyncio.Event()
+        finish = asyncio.Event()
+        tasks = []
+
+        @cache_catalog()
+        async def load(_database):
+            tasks.append(asyncio.current_task())
+            started.set()
+            await finish.wait()
+            return 42
+
+        request = asyncio.create_task(load(database))
+        await started.wait()
+        assert tasks == [request]
+        assert database.catalog_cache.inflight == {}
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+        finish.set()
+        assert await load(database) == 42
+        assert tasks[-1] is asyncio.current_task()
+        assert await load(database) == 42
+        assert len(tasks) == 2
 
     asyncio.run(scenario())

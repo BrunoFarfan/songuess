@@ -10,7 +10,7 @@ from app.catalog_cache import CatalogCache
 from app.config import Settings, get_settings
 
 # Each deployed Worker binds one catalog database. Never share this with local SQLite.
-_worker_catalog_cache = CatalogCache()
+_worker_catalog_cache = CatalogCache(coalesce=False)
 
 
 def connect(database_path: Path | None = None) -> sqlite3.Connection:

@@ -14,10 +14,18 @@ _MISSING = object()
 
 
 class CatalogCache:
-    def __init__(self, *, ttl: float = 300, max_entries: int = 128, max_rows: int = 30_000) -> None:
+    def __init__(
+        self,
+        *,
+        ttl: float = 300,
+        max_entries: int = 128,
+        max_rows: int = 30_000,
+        coalesce: bool = True,
+    ) -> None:
         self.ttl = ttl
         self.max_entries = max_entries
         self.max_rows = max_rows
+        self.coalesce = coalesce
         self.entries: OrderedDict[str, tuple[float, Any, int]] = OrderedDict()
         self.rows = 0
         self.inflight: dict[str, asyncio.Task] = {}
@@ -85,6 +93,15 @@ def cache_catalog(*, row_count: Callable[[Any], int] = lambda _: 1) -> Callable:
             )
             value = cache.get(key)
             if value is _MISSING:
+                if not cache.coalesce:
+                    # Worker binding I/O must stay in the current request's task.
+                    # Sharing a pending asyncio task across requests can leave a
+                    # request with no runtime-owned events and trigger error 1101.
+                    generation = cache.generation
+                    value = await function(database, *args, **kwargs)
+                    if generation == cache.generation:
+                        cache.put(key, value, max(1, row_count(value)))
+                    return value
                 task = cache.inflight.get(key)
                 if task is None:
                     generation = cache.generation
