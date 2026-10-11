@@ -281,6 +281,29 @@ describe("song search carousel query boundaries", () => {
   });
 });
 
+describe("reveal rendering fallback", () => {
+  it("keeps artwork and accessible audio controls available before WebGL loads", () => {
+    const html = renderToStaticMarkup(
+      createElement(VinylSleeveReveal, {
+        revealed: true,
+        outcome: "gave_up",
+        isPlaying: false,
+        song: {
+          title: "15 Step",
+          artist: "Radiohead",
+          artwork_url: "https://example.com/cover.jpg",
+          popularity_score: null,
+        },
+        children: createElement("button", { type: "button", "aria-label": "Play preview" }, "Play"),
+      }),
+    );
+    expect(html).toContain('aria-label="Play preview"');
+    expect(html).toContain('alt="Album artwork for 15 Step"');
+    expect(html).not.toContain("is-3d-ready");
+    expect(html).not.toContain("<canvas");
+  });
+});
+
 describe("revealed song popularity", () => {
   it("shows the score alongside the guessed song details", () => {
     const html = renderToStaticMarkup(

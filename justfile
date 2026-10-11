@@ -2,6 +2,14 @@
 default:
   @just --list
 
+# Rebuild the shared sleeve/record models, Blender source, and preview render.
+blender-build:
+  ALSOFT_DRIVERS=null blender --background -noaudio --factory-startup --python blender/build_assets.py
+
+# Verify the saved final assembly and record clearance through insertion.
+blender-check:
+  ALSOFT_DRIVERS=null blender --background -noaudio blender/songuess-assets.blend --python-exit-code 1 --python blender/validate_assets.py
+
 # Run every application test and static build check.
 check:
   cd backend && just lint && just test

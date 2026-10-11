@@ -1,0 +1,16 @@
+{
+  "sleeve.glb": {
+    "bytes": 64164,
+    "triangles": 758,
+    "front_axis": "+Z",
+    "up_axis": "+Y",
+    "root": "Sleeve"
+  },
+  "vinyl.glb": {
+    "bytes": 1366696,
+    "triangles": 22816,
+    "front_axis": "+Z",
+    "up_axis": "+Y",
+    "root": "Vinyl"
+  }
+}

@@ -61,11 +61,11 @@
 }
 
 .vinyl-sleeve-reveal.is-revealed .vinyl-sleeve-reveal__spine {
-  animation: vinyl-sleeve-spine-enter 900ms cubic-bezier(0.16, 0.82, 0.2, 1) both;
+  animation: vinyl-sleeve-spine-enter 1700ms cubic-bezier(0.16, 0.82, 0.2, 1) both;
 }
 
 .vinyl-sleeve-reveal.is-revealed .vinyl-sleeve-reveal__sleeve {
-  animation: vinyl-sleeve-enter 900ms cubic-bezier(0.16, 0.82, 0.2, 1) both;
+  animation: vinyl-sleeve-enter 1700ms cubic-bezier(0.16, 0.82, 0.2, 1) both;
 }
 
 .vinyl-sleeve-reveal__artwork,
@@ -116,7 +116,7 @@
   align-items: start;
   margin: -0.15rem auto 0;
   padding: 0.8rem 0 0;
-  animation: vinyl-sleeve-caption-in 480ms 310ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+  animation: vinyl-sleeve-caption-in 480ms 1100ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
 }
 
 .vinyl-sleeve-reveal__outcome {
@@ -546,5 +546,49 @@
     border-color: color-mix(in srgb, var(--sleeve-highlight) 58%, transparent);
     box-shadow: 0.2rem 0.2rem 0 color-mix(in srgb, var(--sleeve-accent) 88%, transparent);
     transform: translate(-0.04rem, -0.04rem);
+  }
+}
+
+/* Replace only decorative faces; DOM controls retain focus and pointer events. */
+.vinyl-sleeve-reveal__scene {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.vinyl-sleeve-reveal__scene canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.vinyl-sleeve-reveal.is-vinyl-ready .vinyl-sleeve-reveal__scene {
+  opacity: 1;
+}
+.vinyl-sleeve-reveal.is-3d-ready .vinyl-sleeve-reveal__sleeve,
+.vinyl-sleeve-reveal.is-3d-ready .vinyl-sleeve-reveal__spine {
+  visibility: hidden;
+}
+
+.vinyl-sleeve-reveal.is-vinyl-ready .vinyl-flipper {
+  visibility: hidden;
+}
+/* Keep progress ticks and the play control above the decorative canvas. */
+.vinyl-sleeve-reveal:not(.is-revealed) .vinyl-sleeve-reveal__scene {
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vinyl-sleeve-reveal__record {
+    transition: none;
+  }
+  .vinyl-sleeve-reveal.is-revealed .vinyl-sleeve-reveal__sleeve,
+  .vinyl-sleeve-reveal.is-revealed .vinyl-sleeve-reveal__spine,
+  .vinyl-sleeve-reveal__caption,
+  .vinyl-sleeve-reveal__confetti span,
+  .vinyl-sleeve-reveal.outcome-correct.is-revealed .vinyl-sleeve-reveal__stage::before,
+  .vinyl-sleeve-reveal.outcome-correct.is-revealed .vinyl-sleeve-reveal__stage::after {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
   }
 }

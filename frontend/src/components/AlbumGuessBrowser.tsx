@@ -2,6 +2,7 @@ import React, {
   type CSSProperties,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -159,6 +160,24 @@ export default function AlbumGuessBrowser({
 }: AlbumGuessBrowserProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [Scene, setScene] = useState<typeof import("./AlbumCarouselScene").default | null>(null);
+  const [sceneReady, setSceneReady] = useState(false);
+  const [motionSpeed, setMotionSpeed] = useState(1);
+  const navigationBusyRef = useRef(false);
+  const queuedNavigationRef = useRef<{ index: number; focus: boolean } | null>(null);
+  const applyNavigationRef = useRef<(index: number, focus: boolean, fast?: boolean) => void>(
+    () => {},
+  );
+  const finishNavigation = useCallback(() => {
+    navigationBusyRef.current = false;
+    const queued = queuedNavigationRef.current;
+    queuedNavigationRef.current = null;
+    if (queued) applyNavigationRef.current(queued.index, queued.focus, true);
+    else setMotionSpeed(1);
+  }, []);
+  useEffect(() => {
+    if (!sceneReady) finishNavigation();
+  }, [sceneReady, finishNavigation]);
   const optionIdPrefix = useId();
   const cardRefs = useRef(new Map<number, HTMLButtonElement>());
   const previousQueryRef = useRef("");
@@ -178,6 +197,18 @@ export default function AlbumGuessBrowser({
   const excludedIndexSet = useMemo(() => new Set(excludedIndexes), [excludedIndexes]);
   const normalizedQuery = query.trim();
 
+  useEffect(() => {
+    let cancelled = false;
+    void import("./AlbumCarouselScene")
+      .then(({ default: component }) => {
+        if (!cancelled) setScene(() => component);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function updateActiveIndex(nextIndex: number) {
     activeIndexRef.current = nextIndex;
     setActiveIndex(nextIndex);
@@ -193,13 +224,16 @@ export default function AlbumGuessBrowser({
     if (previousQueryRef.current !== normalizedQuery) {
       previousQueryRef.current = normalizedQuery;
       pendingActiveIndexRef.current = null;
+      queuedNavigationRef.current = null;
+      navigationBusyRef.current = false;
+      setMotionSpeed(1);
       updateActiveIndex(selectedIndex ?? results[0]?.searchIndex ?? 0);
       return;
     }
     const pendingActiveIndex = pendingActiveIndexRef.current;
     if (pendingActiveIndex !== null && resultByIndex.has(pendingActiveIndex)) {
       pendingActiveIndexRef.current = null;
-      updateActiveIndex(pendingActiveIndex);
+      applyNavigationRef.current(pendingActiveIndex, false);
       return;
     }
     if (excludedIndexSet.has(activeIndex)) {
@@ -243,9 +277,35 @@ export default function AlbumGuessBrowser({
     );
   }, [boundedActiveIndex, excludedIndexSet, resultByIndex, resultSignature, totalCount]);
 
+  const sceneSleeves = useMemo(
+    () =>
+      visibleResults.map(({ index, offset, result }) => ({
+        index,
+        offset,
+        artworkUrl: result?.artwork_url,
+      })),
+    [visibleResults],
+  );
+
+  function applyNavigation(index: number, focus: boolean, fast = false) {
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (navigationBusyRef.current && sceneReady && !reduced) {
+      queuedNavigationRef.current = { index, focus };
+      setMotionSpeed(5);
+      return;
+    }
+    queuedNavigationRef.current = null;
+    navigationBusyRef.current = sceneReady && !reduced && index !== activeIndexRef.current;
+    setMotionSpeed(fast ? 5 : 1);
+    updateActiveIndex(index);
+    if (focus) window.requestAnimationFrame(() => cardRefs.current.get(index)?.focus());
+  }
+  applyNavigationRef.current = applyNavigation;
+
   function moveBy(delta: number, focus = false) {
     if (totalCount <= excludedIndexSet.size) return;
-    const startingIndex = pendingActiveIndexRef.current ?? activeIndexRef.current;
+    const startingIndex =
+      pendingActiveIndexRef.current ?? queuedNavigationRef.current?.index ?? activeIndexRef.current;
     const nextIndex = advanceAlbumIndex(startingIndex, delta, totalCount, excludedIndexSet);
     const nextResult = resultByIndex.get(nextIndex);
     if (!nextResult) {
@@ -254,10 +314,7 @@ export default function AlbumGuessBrowser({
       return;
     }
     pendingActiveIndexRef.current = null;
-    updateActiveIndex(nextIndex);
-    if (focus) {
-      window.requestAnimationFrame(() => cardRefs.current.get(nextIndex)?.focus());
-    }
+    applyNavigation(nextIndex, focus);
   }
 
   function moveToAbsolute(index: number, focus = false) {
@@ -267,8 +324,7 @@ export default function AlbumGuessBrowser({
       void onNeedIndex?.(nextIndex);
       return;
     }
-    updateActiveIndex(nextIndex);
-    if (focus) window.requestAnimationFrame(() => cardRefs.current.get(nextIndex)?.focus());
+    applyNavigation(nextIndex, focus);
   }
 
   function handleKeyboard(event: KeyboardEvent<HTMLDivElement>) {
@@ -412,7 +468,7 @@ export default function AlbumGuessBrowser({
 
   return (
     <section
-      className={`album-guess-browser${isDragging ? " is-dragging" : ""} ${className}`.trim()}
+      className={`album-guess-browser${isDragging ? " is-dragging" : ""}${sceneReady ? " is-3d-ready" : ""} ${className}`.trim()}
       aria-label={ariaLabel}
       onKeyDown={handleKeyboard}
     >
@@ -427,7 +483,7 @@ export default function AlbumGuessBrowser({
           className="album-guess-arrow is-previous"
           type="button"
           aria-label="Previous song"
-          onClick={() => moveBy(-1, true)}
+          onClick={() => moveBy(-1)}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="m15 5-7 7 7 7" />
@@ -445,6 +501,15 @@ export default function AlbumGuessBrowser({
           onPointerCancel={(event) => finishSwipe(event, true)}
           onLostPointerCapture={(event) => finishSwipe(event, true)}
         >
+          <span className="album-guess-size-probe" aria-hidden="true" />
+          {Scene && (
+            <Scene
+              sleeves={sceneSleeves}
+              onReady={setSceneReady}
+              onSettled={finishNavigation}
+              motionSpeed={motionSpeed}
+            />
+          )}
           {visibleResults.map(({ result, index, offset, position }) => {
             const depth = Math.abs(offset);
             const side = Math.sign(offset);
@@ -453,8 +518,8 @@ export default function AlbumGuessBrowser({
             const style: AlbumItemStyle = {
               "--album-order": position,
               "--album-depth": depth,
-              "--album-shelf-angle": `${side < 0 ? -68 : 68}deg`,
-              "--album-shelf-mobile-angle": `${side < 0 ? -76 : 76}deg`,
+              "--album-shelf-angle": `68deg`,
+              "--album-shelf-mobile-angle": `76deg`,
               "--album-shelf-scale": 0.86,
               "--album-shelf-x": `${shelfX}rem`,
               "--album-shelf-mobile-x": `${shelfMobileX}rem`,
@@ -468,6 +533,7 @@ export default function AlbumGuessBrowser({
                 <div
                   className="album-guess-item is-page-placeholder"
                   key={index}
+                  data-album-index={index}
                   role="presentation"
                   style={style}
                 >
@@ -487,6 +553,7 @@ export default function AlbumGuessBrowser({
               <div
                 className={`album-guess-item${index === boundedActiveIndex ? " is-active" : ""}`}
                 key={index}
+                data-album-index={index}
                 role="presentation"
                 style={style}
               >
@@ -508,7 +575,7 @@ export default function AlbumGuessBrowser({
                     onClick={() => {
                       if (suppressClickRef.current) return;
                       if (index === boundedActiveIndex) onSelect(result);
-                      else moveBy(offset, true);
+                      else moveToAbsolute(index, true);
                     }}
                   >
                     {result.artwork_url ? (
@@ -535,7 +602,7 @@ export default function AlbumGuessBrowser({
           className="album-guess-arrow is-next"
           type="button"
           aria-label="Next song"
-          onClick={() => moveBy(1, true)}
+          onClick={() => moveBy(1)}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="m9 5 7 7-7 7" />
