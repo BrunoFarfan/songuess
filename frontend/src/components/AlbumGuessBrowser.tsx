@@ -162,6 +162,7 @@ export default function AlbumGuessBrowser({
   const [isDragging, setIsDragging] = useState(false);
   const [Scene, setScene] = useState<typeof import("./AlbumCarouselScene").default | null>(null);
   const [sceneReady, setSceneReady] = useState(false);
+  const [sceneMode, setSceneMode] = useState<"3d" | "css" | null>(null);
   const [motionSpeed, setMotionSpeed] = useState(1);
   const navigationBusyRef = useRef(false);
   const queuedNavigationRef = useRef<{ index: number; focus: boolean } | null>(null);
@@ -208,6 +209,16 @@ export default function AlbumGuessBrowser({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (sceneMode || results.length === 0) return;
+    if (sceneReady) {
+      setSceneMode("3d");
+      return;
+    }
+    const timer = window.setTimeout(() => setSceneMode("css"), 3000);
+    return () => window.clearTimeout(timer);
+  }, [sceneReady, sceneMode, results.length]);
 
   function updateActiveIndex(nextIndex: number) {
     activeIndexRef.current = nextIndex;
@@ -468,11 +479,11 @@ export default function AlbumGuessBrowser({
 
   return (
     <section
-      className={`album-guess-browser${isDragging ? " is-dragging" : ""}${sceneReady ? " is-3d-ready" : ""} ${className}`.trim()}
+      className={`album-guess-browser${isDragging ? " is-dragging" : ""}${sceneMode === "3d" ? " is-3d-ready" : ""}${!sceneMode ? " is-scene-pending" : ""} ${className}`.trim()}
       aria-label={ariaLabel}
       onKeyDown={handleKeyboard}
     >
-      {isSearching && (
+      {(isSearching || !sceneMode) && (
         <div className="album-guess-loading-overlay" role="status">
           <span className="album-guess-loading-disc" aria-hidden="true" />
           <span>Pulling records…</span>
@@ -483,6 +494,7 @@ export default function AlbumGuessBrowser({
           className="album-guess-arrow is-previous"
           type="button"
           aria-label="Previous song"
+          disabled={!sceneMode}
           onClick={() => moveBy(-1)}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -602,6 +614,7 @@ export default function AlbumGuessBrowser({
           className="album-guess-arrow is-next"
           type="button"
           aria-label="Next song"
+          disabled={!sceneMode}
           onClick={() => moveBy(1)}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">

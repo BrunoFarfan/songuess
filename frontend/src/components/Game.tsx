@@ -17,7 +17,8 @@ import {
   type LocalRoundRecord,
   type PersonalStats,
 } from "../lib/roundHistory";
-import AlbumGuessBrowser from "./AlbumGuessBrowser";
+import { PrefetchCache } from "../lib/prefetchCache";
+import AlbumGuessBrowser, { visibleAlbumIndexes } from "./AlbumGuessBrowser";
 import SetupWizard, { type ArtistOption, type SetupFilters } from "./SetupWizard";
 import Tutorial, { hasSeenTutorial } from "./Tutorial";
 import VinylSleeveReveal from "./VinylSleeveReveal";
@@ -157,6 +158,53 @@ type RevealedSong = SearchResult & {
   spotify_url: string | null;
 };
 
+const searchPageCache = new PrefetchCache<SearchResponse>();
+const revealCache = new PrefetchCache<RevealedSong>(4);
+
+async function requestSearchPage(offset: number, query: string): Promise<SearchResponse> {
+  const params = new URLSearchParams({ offset: String(offset), limit: String(SEARCH_PAGE_SIZE) });
+  if (query) params.set("q", query);
+  const url = `/api/songs/search?${params}`;
+  return searchPageCache.get(url, async () => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("Search failed");
+    return response.json();
+  });
+}
+
+function requestReveal(songId: number): Promise<RevealedSong> {
+  return revealCache.get(String(songId), async () => {
+    const response = await fetch(`/api/songs/${songId}`);
+    if (!response.ok) throw new Error(await readApiError(response));
+    return response.json();
+  });
+}
+
+async function prefetchCarousel() {
+  const [first, assets] = await Promise.all([
+    requestSearchPage(0, ""),
+    import("../lib/sceneAssets"),
+    import("./AlbumCarouselScene"),
+  ]);
+  const tail = Math.floor(Math.max(0, first.total - 1) / SEARCH_PAGE_SIZE) * SEARCH_PAGE_SIZE;
+  const offsets = [
+    ...new Set([0, Math.min(SEARCH_PAGE_SIZE, tail), Math.max(0, tail - SEARCH_PAGE_SIZE), tail]),
+  ];
+  const pages = await Promise.all(offsets.map((offset) => requestSearchPage(offset, "")));
+  // Warm every initially visible sleeve, including the wrapped left side.
+  const visibleIndexes = new Set(visibleAlbumIndexes(0, first.total));
+  await Promise.allSettled(
+    pages.flatMap((page) =>
+      page.items.flatMap((item, index) => {
+        const position = page.offset + index;
+        return item.artwork_url && visibleIndexes.has(position)
+          ? [assets.preloadArtwork(item.artwork_url)]
+          : [];
+      }),
+    ),
+  );
+}
+
 const defaultFilters: Filters = {
   genres: [],
   countries: [],
@@ -179,6 +227,9 @@ export default function Game() {
   const [previousGuesses, setPreviousGuesses] = useState<SearchResult[]>([]);
   const [outcome, setOutcome] = useState<RoundOutcome | null>(null);
   const [revealedSong, setRevealedSong] = useState<RevealedSong | null>(null);
+  const [preparedReveal, setPreparedReveal] = useState<{ id: number; song: RevealedSong } | null>(
+    null,
+  );
   const [isRevealLoading, setIsRevealLoading] = useState(false);
   const [isRevealArmed, setIsRevealArmed] = useState(false);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
@@ -398,6 +449,26 @@ export default function Game() {
     return () => window.cancelAnimationFrame(animationFrame);
   }, [isAudioPlaying, phase, unlockedDuration]);
 
+  useEffect(() => {
+    if (currentSongId === null || phase !== "playing") return;
+    let cancelled = false;
+    void requestReveal(currentSongId)
+      .then((song) => {
+        if (!cancelled) setPreparedReveal({ id: currentSongId, song });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSongId, phase]);
+
+  useEffect(() => {
+    if (phase === "setup") return;
+    void import("../lib/sceneAssets").then((assets) => assets.preloadSceneModels()).catch(() => {});
+    void import("./VinylRevealScene").catch(() => {});
+    if (phase === "revealed" || phase === "loading") void prefetchCarousel().catch(() => {});
+  }, [phase]);
+
   const loadSearchPage = useCallback(
     async (
       offset: number,
@@ -415,14 +486,7 @@ export default function Game() {
       pendingSearchPagesRef.current.add(pageOffset);
       setIsLoadingMoreResults(true);
       try {
-        const params = new URLSearchParams({
-          offset: String(pageOffset),
-          limit: String(SEARCH_PAGE_SIZE),
-        });
-        if (normalizedQuery) params.set("q", normalizedQuery);
-        const response = await fetch(`/api/songs/search?${params}`);
-        if (!response.ok) throw new Error("Search failed");
-        const payload = (await response.json()) as SearchResponse;
+        const payload = await requestSearchPage(pageOffset, normalizedQuery);
         if (generation !== searchGenerationRef.current) return null;
 
         loadedSearchPagesRef.current.add(pageOffset);
@@ -453,8 +517,10 @@ export default function Game() {
       } catch {
         return null;
       } finally {
-        pendingSearchPagesRef.current.delete(pageOffset);
-        if (generation === searchGenerationRef.current) setIsLoadingMoreResults(false);
+        if (generation === searchGenerationRef.current) {
+          pendingSearchPagesRef.current.delete(pageOffset);
+          setIsLoadingMoreResults(pendingSearchPagesRef.current.size > 0);
+        }
       }
     },
     [],
@@ -481,13 +547,7 @@ export default function Game() {
       async () => {
         const normalizedQuery = query.trim();
         try {
-          const params = new URLSearchParams({ offset: "0", limit: String(SEARCH_PAGE_SIZE) });
-          if (normalizedQuery) params.set("q", normalizedQuery);
-          const response = await fetch(`/api/songs/search?${params}`, {
-            signal: controller.signal,
-          });
-          if (!response.ok) throw new Error("Search failed");
-          const payload = (await response.json()) as SearchResponse;
+          const payload = await requestSearchPage(0, normalizedQuery);
           if (generation !== searchGenerationRef.current) return;
           loadedSearchPagesRef.current.add(0);
           searchTotalCountRef.current = payload.total;
@@ -743,15 +803,14 @@ export default function Game() {
     }
     setIsRevealArmed(false);
     stopAudio(true);
+    setRevealedSong(preparedReveal?.id === currentSongId ? preparedReveal.song : null);
     setOutcome(nextOutcome);
     setPhase("revealed");
     void playFullPreview(true);
     setIsRevealLoading(true);
     setAppError("");
     try {
-      const response = await fetch(`/api/songs/${currentSongId}`);
-      if (!response.ok) throw new Error(await readApiError(response));
-      const song = (await response.json()) as RevealedSong;
+      const song = await requestReveal(currentSongId);
       if (generation === roundGenerationRef.current) {
         setRevealedSong(song);
         if (historyRecordId) {
@@ -780,10 +839,9 @@ export default function Game() {
     const generation = roundGenerationRef.current;
     setIsRevealLoading(true);
     setAppError("");
+    revealCache.delete(String(currentSongId));
     try {
-      const response = await fetch(`/api/songs/${currentSongId}`);
-      if (!response.ok) throw new Error(await readApiError(response));
-      const song = (await response.json()) as RevealedSong;
+      const song = await requestReveal(currentSongId);
       if (generation === roundGenerationRef.current) setRevealedSong(song);
     } catch (error) {
       if (generation === roundGenerationRef.current) {
@@ -1065,6 +1123,11 @@ export default function Game() {
                       revealed={phase === "revealed"}
                       outcome={outcome}
                       song={revealedSong}
+                      preloadArtworkUrl={
+                        preparedReveal?.id === currentSongId
+                          ? preparedReveal.song.artwork_url
+                          : null
+                      }
                       isPlaying={isAudioPlaying}
                       loading={isRevealLoading}
                       error={appError}

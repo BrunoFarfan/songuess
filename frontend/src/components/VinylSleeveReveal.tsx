@@ -1,4 +1,10 @@
-import React, { type AnimationEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import React, {
+  type AnimationEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 
 import PopularityScore from "./PopularityScore";
 import "./VinylSleeveReveal.css";
@@ -24,6 +30,7 @@ export type VinylSleeveRevealProps = {
   outcome: VinylSleeveRevealOutcome;
   song: VinylSleeveRevealSong | null;
   isPlaying?: boolean;
+  preloadArtworkUrl?: string | null;
   loading?: boolean;
   error?: string;
   onRetry?: () => void;
@@ -42,6 +49,7 @@ export default function VinylSleeveReveal({
   outcome,
   song,
   isPlaying = false,
+  preloadArtworkUrl,
   loading = false,
   error = "",
   onRetry,
@@ -50,28 +58,16 @@ export default function VinylSleeveReveal({
   const [revealSettled, setRevealSettled] = useState(false);
   const [Scene, setScene] = useState<typeof import("./VinylRevealScene").default | null>(null);
   const [sceneReady, setSceneReady] = useState(false);
+  const [readyArtworkUrl, setReadyArtworkUrl] = useState<string | null | undefined>(undefined);
+  const handleSceneReady = useCallback((ready: boolean, url?: string | null) => {
+    setSceneReady(ready);
+    setReadyArtworkUrl(ready ? (url ?? null) : undefined);
+  }, []);
+  const artworkUrl = song?.artwork_url ?? preloadArtworkUrl ?? null;
+  const coverReady = sceneReady && readyArtworkUrl === artworkUrl;
   const [vinylReady, setVinylReady] = useState(false);
   const [revealStartedAt, setRevealStartedAt] = useState(0);
-  const revealStartRef = useRef(0);
-  const previousSongRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!revealed) {
-      revealStartRef.current = 0;
-      previousSongRef.current = null;
-      setRevealStartedAt(0);
-      return;
-    }
-    const identity = song ? `${song.title}:${song.artist}:${song.artwork_url ?? ""}` : null;
-    if (
-      !revealStartRef.current ||
-      (previousSongRef.current && identity && previousSongRef.current !== identity)
-    ) {
-      revealStartRef.current = performance.now();
-    }
-    if (identity) previousSongRef.current = identity;
-    setRevealStartedAt(revealStartRef.current);
-  }, [revealed, song?.title, song?.artist, song?.artwork_url]);
+  const [revealMode, setRevealMode] = useState<"3d" | "css" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,38 +83,52 @@ export default function VinylSleeveReveal({
 
   useEffect(() => {
     if (!revealed) {
+      setRevealMode(null);
+      setRevealStartedAt(0);
       setRevealSettled(false);
       return;
     }
-
-    if (sceneReady) return;
-    const fallback = window.setTimeout(() => setRevealSettled(true), 1900);
+    if (!song || revealMode) return;
+    if (coverReady) {
+      setRevealStartedAt(performance.now());
+      setRevealMode("3d");
+      return;
+    }
+    // Keep the current vinyl visible while preparing the new reveal. If WebGL
+    // or artwork fails, choose CSS once and never replace it midway through.
+    const fallback = window.setTimeout(() => {
+      setRevealStartedAt(performance.now());
+      setRevealMode("css");
+    }, 3000);
     return () => window.clearTimeout(fallback);
-  }, [revealed, sceneReady]);
+  }, [revealed, !!song, coverReady, revealMode]);
 
-  // Start the full choreography once the cover is on the GPU; slow artwork
-  // requests must not skip the swivel or unlock controls halfway through it.
   useEffect(() => {
-    if (!revealed || !song || !sceneReady) return;
-    const start = performance.now();
-    revealStartRef.current = start;
-    setRevealStartedAt(start);
+    if (!revealed) return;
+    if (!song && !loading) {
+      setRevealSettled(true);
+      return;
+    }
+    if (!revealMode) return;
     setRevealSettled(false);
     const timer = window.setTimeout(() => setRevealSettled(true), 1700);
     return () => window.clearTimeout(timer);
-  }, [revealed, !!song, sceneReady]);
+  }, [revealed, revealMode, !!song, loading]);
 
   function settleReveal(event: AnimationEvent<HTMLElement>) {
-    if (!sceneReady && event.animationName === "vinyl-sleeve-enter") setRevealSettled(true);
+    if (revealMode === "css" && event.animationName === "vinyl-sleeve-enter")
+      setRevealSettled(true);
   }
 
   const outcomeClass = outcome ? ` outcome-${outcome}` : " outcome-pending";
   const rootClass = [
     "vinyl-sleeve-reveal",
     revealed ? "is-revealed" : "",
+    revealed && !revealMode ? "is-reveal-pending" : "",
+    revealed && revealMode === "css" ? "is-css-reveal" : "",
     revealSettled ? "is-settled" : "",
-    revealed && song && sceneReady ? "is-3d-ready" : "",
-    vinylReady ? "is-vinyl-ready" : "",
+    revealed && revealMode === "3d" ? "is-3d-ready" : "",
+    vinylReady && !(revealed && revealMode === "css") ? "is-vinyl-ready" : "",
     outcomeClass,
     className,
   ]
@@ -137,11 +147,11 @@ export default function VinylSleeveReveal({
       <div className="vinyl-sleeve-reveal__stage">
         {Scene && (
           <Scene
-            revealed={revealed && !!song}
-            artworkUrl={song?.artwork_url}
+            revealed={revealed && revealMode === "3d"}
+            artworkUrl={artworkUrl}
             revealStartedAt={revealStartedAt}
             isPlaying={isPlaying}
-            onReady={setSceneReady}
+            onReady={handleSceneReady}
             onVinylReady={setVinylReady}
           />
         )}
