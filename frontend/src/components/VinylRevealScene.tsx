@@ -42,6 +42,8 @@ export default function VinylRevealScene({
       previous = 0;
     let sleeve: THREE.Group | undefined, vinyl: THREE.Group | undefined;
     let renderer: THREE.WebGLRenderer;
+    let angularVelocity = 0;
+    const reflectionTextures = new Set<THREE.Texture>();
     const textures = new Set<THREE.Texture>();
     const materials = new Set<THREE.Material>();
     const geometries = new Set<THREE.BufferGeometry>();
@@ -182,13 +184,28 @@ export default function VinylRevealScene({
           (Number.parseFloat(getComputedStyle(disc).width) * unitsPerPixel) / 1.88,
         );
       camera.updateProjectionMatrix();
-      if ((state.isPlaying || state.revealed) && !reducedMotion.matches && previous)
-        vinyl.rotation.z -= Math.min((now - previous) / 1000, 0.05) * ((Math.PI * 2) / 4);
+      const dt = previous ? Math.min((now - previous) / 1000, 0.05) : 0;
+      const revealing = revealReady && progress < 1;
+      const turning = state.isPlaying || revealing;
+      const targetVelocity = turning && !reducedMotion.matches ? (Math.PI * 2) / 1.8 : 0;
+      if (reducedMotion.matches) angularVelocity = 0;
+      else {
+        angularVelocity +=
+          (targetVelocity - angularVelocity) * (1 - Math.exp(-dt / (turning ? 0.12 : 0.2)));
+        if (!turning && angularVelocity < 0.002) angularVelocity = 0;
+        vinyl.rotation.z = (vinyl.rotation.z - angularVelocity * dt) % (Math.PI * 2);
+      }
+      // Studio reflections stay fixed while the pressing's actual wear rotates.
+      for (const texture of reflectionTextures) {
+        // glTF flips V, so matching the angle cancels rotation in world space.
+        texture.rotation = vinyl.rotation.z;
+        texture.updateMatrix();
+      }
       previous = now;
       renderer.render(scene, camera);
       if (
         !reducedMotion.matches &&
-        (state.isPlaying || state.revealed || now < layoutUntilRef.current)
+        (state.isPlaying || revealing || angularVelocity > 0 || now < layoutUntilRef.current)
       )
         frame = requestAnimationFrame(render);
     }
@@ -294,6 +311,23 @@ export default function VinylRevealScene({
       if (disposed || models.some((result) => result.status === "rejected")) return;
       sleeve = (models[0] as PromiseFulfilledResult<THREE.Group>).value;
       vinyl = (models[1] as PromiseFulfilledResult<THREE.Group>).value;
+      vinyl.traverse((object) => {
+        if (!(object instanceof THREE.Mesh)) return;
+        for (const material of Array.isArray(object.material)
+          ? object.material
+          : [object.material]) {
+          if (
+            !(material instanceof THREE.MeshStandardMaterial) ||
+            material.name !== "Vinyl polymer"
+          )
+            continue;
+          for (const texture of [material.map, material.roughnessMap])
+            if (texture) {
+              texture.center.set(0.5, 0.5);
+              reflectionTextures.add(texture);
+            }
+        }
+      });
       assembly.add(sleeve, vinyl);
       updateArtwork();
       if (disposed) return;

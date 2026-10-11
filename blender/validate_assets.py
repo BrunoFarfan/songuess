@@ -39,7 +39,7 @@ carousel = bpy.data.scenes["Carousel reference"]
 bpy.context.window.scene = carousel
 jackets = [obj for obj in carousel.objects if obj.name.startswith("SleeveCarousel_")]
 assert len(jackets) == 7
-for step in range(481):
+for step in range(241):
     frame = 1 + step / 8
     carousel.frame_set(int(frame), subframe=frame % 1)
     for index, jacket in enumerate(jackets):

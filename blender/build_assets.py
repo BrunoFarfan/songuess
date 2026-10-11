@@ -258,7 +258,7 @@ for i in range(17):
 profile.extend([(0.365, 0.012), (0.342, 0.0126), (0.012, 0.013), (0.012, -0.012)])
 lathe("VinylGrooves", profile, ink, vinyl, segments=160)
 lathe("VinylLabel", [(0.312, 0.014), (0.012, 0.014)], label, vinyl, segments=160)
-# A faint pressed center ring and a real spindle hole, with no decorative print.
+# A faint pressed center ring and a real spindle hole.
 lathe(
     "VinylLabelPressRing",
     [(0.106, 0.0142), (0.104, 0.0142)],
@@ -267,22 +267,73 @@ lathe(
     segments=160,
 )
 lathe("VinylSpindleRim", [(0.017, 0.0143), (0.012, 0.0143)], ink, vinyl, segments=160)
-# Fine sleeve rubs stay subtle; the broad sheen carries most of the visible spin.
-scuff = material("Outer groove wear", (0.035, 0.035, 0.032), 0.45)
+# Printed label lettering is geometry, so it rotates with the record itself.
+# Neutral pressing details avoid revealing the song before the round ends.
+printed_ink = material("Label printed ink", (0.035, 0.013, 0.009), 0.85)
+for name, body, y, size in [
+    ("Brand", "SONGUESS", 0.20, 0.040),
+    ("Speed", "33 1/3 RPM", 0.155, 0.019),
+    ("Side", "SIDE A", -0.19, 0.033),
+    ("Format", "STEREO", -0.235, 0.018),
+]:
+    lettering = bpy.data.curves.new(f"VinylLabel{name}", type="FONT")
+    lettering.body = body
+    lettering.size = size
+    lettering.align_x = "CENTER"
+    obj = bpy.data.objects.new(f"VinylLabel{name}", lettering)
+    bpy.context.collection.objects.link(obj)
+    obj.parent = vinyl
+    obj.location = xyz(0, y, 0.0147)
+    obj.rotation_euler = (math.pi / 2, 0, 0)
+    lettering.materials.append(printed_ink)
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.convert(target="MESH")
+lathe(
+    "VinylLabelPrint",
+    [(0.275, 0.0143), (0.2735, 0.0143)],
+    printed_ink,
+    vinyl,
+    segments=160,
+)
+# Asymmetric wear clusters remain readable outside the central play control.
+scuff = material("Outer groove wear", (0.22, 0.23, 0.21), 0.58)
+faint_scuff = material("Fine groove wear", (0.105, 0.115, 0.10), 0.66)
 for index, (radius, start, sweep, thickness) in enumerate(
-    [(0.79, 21, 19, 0.0018), (0.86, 207, 9, 0.0012)]
+    [
+        (0.85, 18, 24, 0.007),
+        (0.80, 24, 29, 0.005),
+        (0.75, 17, 18, 0.006),
+        (0.69, 31, 21, 0.0045),
+        (0.57, 27, 12, 0.004),
+        (0.89, 137, 13, 0.006),
+        (0.83, 132, 19, 0.0045),
+        (0.77, 144, 11, 0.005),
+        (0.64, 138, 16, 0.004),
+        (0.87, 253, 9, 0.007),
+        (0.81, 245, 22, 0.005),
+        (0.72, 250, 14, 0.006),
+        (0.61, 260, 11, 0.0045),
+    ]
 ):
     vertices = []
     segments = 24
     for step in range(segments + 1):
         t = step / segments
         angle = math.radians(start + sweep * t)
-        center = radius + 0.003 * math.sin(t * math.pi)
+        center = radius + 0.005 * math.sin(t * math.pi)
         half_width = thickness * math.sin(t * math.pi) / 2
         for r in (center - half_width, center + half_width):
             vertices.append((r * math.cos(angle), r * math.sin(angle), 0.0132))
     faces = [(i * 2, i * 2 + 1, i * 2 + 3, i * 2 + 2) for i in range(segments)]
-    mesh(f"VinylOuterScuff{index}", vertices, faces, scuff, vinyl)
+    mesh(
+        f"VinylOuterScuff{index}",
+        vertices,
+        faces,
+        faint_scuff if index % 3 == 1 else scuff,
+        vinyl,
+    )
 export(vinyl, "vinyl.glb")
 
 # An editable, lit reveal reference scene. Assets retain their local origin in exports.
@@ -378,7 +429,7 @@ preview.view_settings.view_transform = "AgX"
 spin = bpy.data.scenes.new("Spin reference")
 spin.world = preview.world
 spin.render.fps = 30
-spin.frame_end = 120
+spin.frame_end = 54
 spinner = vinyl.copy()
 spinner.name = "VinylSpin"
 spin.collection.objects.link(spinner)
@@ -396,7 +447,7 @@ for obj in preview.objects:
 spinner.rotation_euler = (0, 0, -0.07)
 spinner.keyframe_insert(data_path="rotation_euler", index=1, frame=1)
 spinner.rotation_euler.y = math.tau
-spinner.keyframe_insert(data_path="rotation_euler", index=1, frame=121)
+spinner.keyframe_insert(data_path="rotation_euler", index=1, frame=55)
 action = spinner.animation_data.action
 for layer in action.layers:
     for strip in layer.strips:
@@ -405,12 +456,43 @@ for layer in action.layers:
                 for keyframe in curve.keyframe_points:
                     keyframe.interpolation = "LINEAR"
                 curve.modifiers.new("CYCLES")
+# Counter-rotate only the sheen UVs; physical groove wear follows the record.
+for obj in spinner.children:
+    if obj.type != "MESH":
+        continue
+    for slot in obj.material_slots:
+        if slot.material != ink:
+            continue
+        reflective = ink.copy()
+        slot.link = "OBJECT"
+        slot.material = reflective
+        nodes = reflective.node_tree.nodes
+        links = reflective.node_tree.links
+        tex = next(node for node in nodes if node.type == "TEX_IMAGE")
+        uv = nodes.new("ShaderNodeTexCoord")
+        subtract = nodes.new("ShaderNodeVectorMath")
+        subtract.operation = "SUBTRACT"
+        subtract.inputs[1].default_value = (0.5, 0.5, 0)
+        mapping = nodes.new("ShaderNodeMapping")
+        add = nodes.new("ShaderNodeVectorMath")
+        add.operation = "ADD"
+        add.inputs[1].default_value = (0.5, 0.5, 0)
+        links.new(uv.outputs["UV"], subtract.inputs[0])
+        links.new(subtract.outputs["Vector"], mapping.inputs["Vector"])
+        links.new(mapping.outputs["Vector"], add.inputs[0])
+        links.new(add.outputs["Vector"], tex.inputs["Vector"])
+        driver = mapping.inputs["Rotation"].driver_add("default_value", 2).driver
+        variable = driver.variables.new()
+        variable.name = "angle"
+        variable.targets[0].id = spinner
+        variable.targets[0].data_path = "rotation_euler[1]"
+        driver.expression = "-angle"
 spin.frame_set(1)
 # A handling study matching the browser: return, lift, pull, wrist turn, settle.
 carousel = bpy.data.scenes.new("Carousel reference")
 carousel.world = preview.world
 carousel.render.fps = 30
-carousel.frame_end = 61
+carousel.frame_end = 31
 pixel = 2 / 172.8
 
 
@@ -447,12 +529,12 @@ for index in range(-3, 4):
         copied.parent = jacket_ref
     inspecting = index == 1
     returning = index == 0
-    duration = 1.1 if inspecting else 0.78 if returning else 0.9
-    delay = 0.85 if inspecting else 0
+    duration = 0.55 if inspecting else 0.39 if returning else 0.45
+    delay = 0.425 if inspecting else 0
     start = shelf_pose(index)
     end = shelf_pose(index - 1)
     direction = 1 if index >= 0 else -1
-    for step in range(241):
+    for step in range(121):
         frame = 1 + step / 4
         t = max(0, min(((frame - 1) / 30 - delay) / duration, 1))
         travel = smooth(t / 0.35) if inspecting else smooth(t)
@@ -499,7 +581,7 @@ ordered = sorted(
     ),
     reverse=True,
 )
-for step in range(241):
+for step in range(121):
     frame = 1 + step / 4
     carousel.frame_set(int(frame), subframe=frame % 1)
     placed = []
@@ -532,7 +614,7 @@ for obj in preview.objects:
             copied.data.animation_data_clear()
             copied.data.ortho_scale = 6.4
             carousel.camera = copied
-carousel.frame_set(61)
+carousel.frame_set(31)
 # An unrotated assembly makes panel/record clearance easy to inspect from the side.
 inspection = bpy.data.scenes.new("Sleeve fit inspection")
 bpy.context.window.scene = inspection
