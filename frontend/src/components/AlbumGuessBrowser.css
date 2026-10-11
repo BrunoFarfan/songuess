@@ -136,7 +136,7 @@
   transform-origin: 50% 88%;
   transform-style: preserve-3d;
   transition:
-    transform 380ms cubic-bezier(0.18, 0.88, 0.22, 1),
+    transform 1100ms cubic-bezier(0.25, 0.1, 0.15, 1),
     opacity 180ms ease,
     filter 220ms ease;
   pointer-events: auto;
@@ -495,5 +495,81 @@
     box-shadow:
       0.12rem 0 0 rgba(255, 101, 71, 0.5),
       0.28rem 0.45rem 0.75rem rgba(0, 0, 0, 0.58);
+  }
+}
+
+/* Blender jackets share a single canvas. Buttons remain the focus and input layer. */
+.album-guess-scene {
+  position: absolute;
+  inset: -4rem -8rem -2rem;
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.album-guess-scene canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.album-guess-size-probe {
+  position: absolute;
+  width: var(--album-size);
+  height: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.album-guess-browser.is-3d-ready .album-guess-scene {
+  opacity: 1;
+}
+
+.album-guess-browser.is-3d-ready .album-guess-item {
+  top: 0;
+  width: var(--scene-width, var(--album-size));
+  height: var(--scene-height, var(--album-size));
+  filter: none;
+  transform: translate3d(calc(-50% + var(--scene-x, 0px)), var(--scene-y, 0px), 0);
+  transition: none;
+}
+
+.album-guess-browser.is-3d-ready .album-guess-deal {
+  animation: none;
+}
+
+.album-guess-browser.is-3d-ready .album-guess-cover {
+  overflow: visible;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.album-guess-browser.is-3d-ready .album-guess-cover > * {
+  visibility: hidden;
+}
+
+.album-guess-browser.is-3d-ready .album-guess-cover:focus-visible {
+  outline: 2px solid var(--mint, #8cc9b3);
+  outline-offset: 5px;
+}
+
+.album-guess-browser.is-3d-ready .album-guess-stage::before {
+  box-shadow:
+    0 0.5rem 0.9rem rgba(0, 0, 0, 0.62),
+    0 -1rem 2rem rgba(0, 0, 0, 0.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .album-guess-item,
+  .album-guess-cover,
+  .album-guess-arrow {
+    transition: none;
+  }
+
+  .album-guess-deal,
+  .album-guess-loading-disc {
+    animation: none;
   }
 }

@@ -44,6 +44,10 @@ def test_discover_writes_ranked_append_only_manifest(tmp_path: Path, monkeypatch
         "dataset.catalog_pipeline.fetch_listenbrainz_candidates",
         lambda *_args, **_kwargs: candidates,
     )
+    monkeypatch.setattr(
+        "dataset.catalog_pipeline.fetch_listenbrainz_popular_artists",
+        lambda *_args, **_kwargs: [{"artist_mbid": "artist-new"}],
+    )
     manifest = tmp_path / "manifest.json"
     snapshot = tmp_path / "snapshot.json"
     args = Namespace(

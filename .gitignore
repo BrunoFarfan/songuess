@@ -17,3 +17,5 @@ frontend/.astro/
 frontend/dist/
 frontend/node_modules/
 output/
+*.blend1
+*.blend2

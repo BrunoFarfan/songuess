@@ -846,9 +846,18 @@ legend,
     transparent 58%
   );
 }
-.vinyl-progress.is-spinning .vinyl-disc {
-  /* Playback motion is an intentional part of the game and is identical for every player. */
+.vinyl-progress .vinyl-disc {
   animation: vinyl-spin 4s linear infinite;
+  animation-play-state: paused;
+}
+.vinyl-progress.is-spinning .vinyl-disc,
+.vinyl-sleeve-reveal.is-revealed .vinyl-disc {
+  animation-play-state: running;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vinyl-progress .vinyl-disc {
+    animation: none;
+  }
 }
 .vinyl-progress-ring {
   position: absolute;

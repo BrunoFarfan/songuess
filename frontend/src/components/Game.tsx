@@ -1065,6 +1065,7 @@ export default function Game() {
                       revealed={phase === "revealed"}
                       outcome={outcome}
                       song={revealedSong}
+                      isPlaying={isAudioPlaying}
                       loading={isRevealLoading}
                       error={appError}
                       onRetry={() => void retryReveal()}
