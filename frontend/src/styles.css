@@ -2651,3 +2651,36 @@ main:has(.game-shell.is-playing) {
     --round-viewport-height: calc(100dvh - 6rem);
   }
 }
+
+/* Mobile reveals reserve one viewport for the answer; guesses follow below it. */
+@media (max-width: 63.99rem) {
+  main:has(.phase-revealed) {
+    min-height: 100dvh;
+    padding-block: max(0.5rem, env(safe-area-inset-top)) max(0.5rem, env(safe-area-inset-bottom));
+    align-items: start;
+  }
+  .phase-revealed .round-play-area {
+    height: calc(
+      100dvh - max(0.5rem, env(safe-area-inset-top)) - max(0.5rem, env(safe-area-inset-bottom))
+    );
+    display: grid;
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .phase-revealed .listening-card {
+    height: auto;
+    max-height: 100%;
+    min-height: 0;
+    align-self: center;
+    padding: 0;
+  }
+  .phase-revealed .round-answer-surface {
+    display: none;
+  }
+  .phase-revealed.play-stack {
+    padding-bottom: 0;
+  }
+  .phase-revealed .previous-guesses {
+    width: min(100%, 34rem);
+    margin: 1rem auto 0;
+  }
+}

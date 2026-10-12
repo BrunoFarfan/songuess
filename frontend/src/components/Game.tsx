@@ -255,6 +255,7 @@ export default function Game() {
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const drawerRef = useRef<HTMLDialogElement>(null);
+  const revealDeckRef = useRef<HTMLDivElement>(null);
   const desktopUtilityRef = useRef<HTMLElement>(null);
   const drawerTriggerRef = useRef<HTMLButtonElement>(null);
   const browseSeedRef = useRef(0);
@@ -406,6 +407,46 @@ export default function Game() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (phase !== "revealed") return;
+    const deck = revealDeckRef.current;
+    const area = deck?.closest<HTMLElement>(".round-play-area");
+    const caption = deck?.querySelector<HTMLElement>(".vinyl-sleeve-reveal__caption");
+    const points = deck?.querySelector<HTMLElement>(".reveal-points-status");
+    const actions = deck?.querySelector<HTMLElement>(".game-actions-dock");
+    if (!deck || !area || !caption || !points || !actions) return;
+    const mobile = window.matchMedia("(max-width: 63.99rem)");
+    const fitArtwork = () => {
+      if (!mobile.matches) {
+        deck.style.removeProperty("--mobile-reveal-art-height");
+        return;
+      }
+      const deckStyle = getComputedStyle(deck);
+      const gap = Number.parseFloat(deckStyle.rowGap) || 0;
+      const pointsRow = Number.parseFloat(deckStyle.gridTemplateRows) || points.offsetHeight;
+      const actionMargin = Number.parseFloat(getComputedStyle(actions).marginBottom) || 0;
+      const reserved =
+        pointsRow +
+        caption.getBoundingClientRect().height +
+        actions.getBoundingClientRect().height +
+        gap * 2 +
+        actionMargin;
+      const rootSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+      const preferred = Math.min(deck.clientWidth * 0.62, rootSize * 14) / 0.9;
+      const available = Math.max(0, area.clientHeight - reserved);
+      deck.style.setProperty("--mobile-reveal-art-height", `${Math.min(preferred, available)}px`);
+    };
+    const observer = new ResizeObserver(fitArtwork);
+    [area, caption, points, actions].forEach((element) => observer.observe(element));
+    mobile.addEventListener("change", fitArtwork);
+    fitArtwork();
+    return () => {
+      observer.disconnect();
+      mobile.removeEventListener("change", fitArtwork);
+      deck.style.removeProperty("--mobile-reveal-art-height");
+    };
+  }, [phase]);
 
   useEffect(() => {
     const desktop = window.matchMedia("(min-width: 64rem)");
@@ -1451,7 +1492,7 @@ export default function Game() {
                       <PotentialPoints attempt={attempt} />
                     </div>
                   )}
-                  <div className="vinyl-control-deck">
+                  <div className="vinyl-control-deck" ref={revealDeckRef}>
                     {phase === "revealed" && (
                       <div className="clue-status reveal-points-status">
                         <p
