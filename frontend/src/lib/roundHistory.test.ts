@@ -64,4 +64,13 @@ describe("personal statistics", () => {
     expect(parseRoundHistory("not-json")).toEqual([]);
     expect(parseRoundHistory(JSON.stringify([{ result: "clue_1" }]))).toEqual([]);
   });
+
+  it("keeps older resumed room results behind more recent solo rounds", () => {
+    const history = [record("3", "clue_1"), record("2", "not_guessed")];
+    const resumed = addOrUpdateRound(history, record("1", "clue_2"));
+    const enriched = addOrUpdateRound(resumed, { ...record("2", "not_guessed"), title: "Song" });
+
+    expect(enriched.map((item) => item.id)).toEqual(["3", "2", "1"]);
+    expect(calculatePersonalStats(enriched).currentStreak).toBe(1);
+  });
 });

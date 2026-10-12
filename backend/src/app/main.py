@@ -23,6 +23,7 @@ from app.repository import (
     search_artists_async,
     search_songs_async,
 )
+from app.rooms import router as rooms_router
 
 
 @asynccontextmanager
@@ -37,6 +38,7 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+app.include_router(rooms_router)
 
 
 @app.get("/api/health")

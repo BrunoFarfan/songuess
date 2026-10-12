@@ -1,6 +1,6 @@
 # Songuess
 
-Songuess is an unlimited, solo music guessing game. A round opens one Apple preview in continuous stages—1, 2, 4, 7, 11, and 15 seconds—while the browser owns all temporary game state.
+Songuess is a music guessing game with unlimited solo play and asynchronous challenges. A round opens one Apple preview in continuous stages—1, 2, 4, 7, 11, and 15 seconds. Solo rounds use browser state; challenges save progress on the server.
 
 The runtime frontend and backend read a local catalog built offline from public ListenBrainz, MusicBrainz, and Apple data. Gameplay itself never calls those services.
 
@@ -9,7 +9,7 @@ The runtime frontend and backend read a local catalog built offline from public 
 ```text
 .
 ├── backend/
-│   ├── app/                 # FastAPI, validation, SQL access, DB initializer
+│   ├── src/app/             # FastAPI, validation, SQL access, DB initializer
 │   ├── pyproject.toml
 │   └── uv.lock
 ├── frontend/
@@ -23,7 +23,7 @@ The runtime frontend and backend read a local catalog built offline from public 
 └── plan.md
 ```
 
-The API is stateless. There are no game, account, history, or session tables. Songs may belong to many normalized genres through `song_genres`.
+There are no user accounts or passwords. Challenge rooms, their frozen songs, participants, and round progress live in SQLite/D1. Songs may belong to many normalized genres through `song_genres`.
 
 ## Prerequisites
 
@@ -149,6 +149,56 @@ The React island implements:
 - unrestricted play, pause, and replay of the full preview after reveal;
 - clean Next Song reset with the active filters preserved;
 - visible loading, empty-catalog, no-match, and audio failure states.
+
+## Asynchronous challenges
+
+Choose **Multiplayer**, then **Create challenge**. Pick a mix or set custom filters, then enter a display name and choose
+1–20 songs and a 1–24-hour duration (defaults: 10 songs and 24 hours). Creation freezes
+distinct songs and their order, joins the creator, and produces a code and an invite such
+as `/?room=ABCDEFGH`. There is no lobby: up to 50 players can join and play independently
+until the deadline, even when everyone who previously joined has finished.
+
+Every song allows one full six-clue round. The server records guesses, skips, reveals,
+and results. Reopening the invite in the same browser resumes saved progress. Correct
+answers earn 6–1 points according to the clue; giving up or exhausting clues earns zero.
+Standings are visible during play and refresh while the room panel is visible. Ties use
+the number of correct answers, then clue-1 solves through clue-6 solves; equal results
+share a rank. Other players' song answers are not included in standings.
+
+A signed, HttpOnly guest cookie identifies the browser for 30 days. Names are display
+labels: changing one cannot create another entry in the same room. Clearing cookies or
+switching browsers loses this identity and can create another entry. This is a casual
+competition; IP addresses do not determine identity, so friends on the same Wi-Fi can
+play separately. Public solo catalog/reveal endpoints remain available.
+
+Challenge endpoints:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/api/guest-session` | Create or renew the guest cookie |
+| POST | `/api/rooms` | Freeze a room and join its creator |
+| GET | `/api/rooms/{code}` | Room summary and leaderboard |
+| POST | `/api/rooms/{code}/join` | Join or recover existing participation |
+| GET | `/api/rooms/{code}/me` | Saved progress, current round, and completed reveals |
+| POST | `/api/rooms/{code}/actions` | Versioned guess, skip, or give-up action |
+
+After the deadline, joining and scoring stop immediately, and unfinished songs count
+as zero points. Results remain available for seven days after closure. The hourly Worker
+schedule deletes expired rooms and cascades through their songs, participants, and
+progress; API access stops at the deletion time even if cleanup has not run yet. Local
+SQLite cleanup uses the same implementation:
+
+```bash
+just rooms-cleanup
+```
+
+Configure `SONGUESS_GUEST_SECRET` as a Worker secret separately for preview and production,
+using a random value of at least 32 characters. Keep it stable across deployments; changing
+it invalidates guest cookies. Local Uvicorn has a development fallback; `.env.example`
+documents the override. For local Worker development, copy `backend/.dev.vars.example`
+to the ignored `backend/.dev.vars` and replace its placeholder with a random secret.
+Apply migration `015_challenge_rooms.sql` before deploying the feature. Catalog exports
+exclude rooms and participant data, and catalog replacement preserves room snapshots.
 
 ## Blender assets
 

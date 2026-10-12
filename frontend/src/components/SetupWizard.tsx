@@ -50,6 +50,7 @@ export interface SetupWizardProps {
   onStart: (filters: SetupFilters) => void;
   error?: string;
   loading?: boolean;
+  startLabel?: string;
   artistSearchEndpoint?: string;
   contextualFiltersEndpoint?: string;
 }
@@ -139,6 +140,7 @@ export default function SetupWizard({
   onStart,
   error = "",
   loading = false,
+  startLabel = "Play",
   artistSearchEndpoint = "/api/artists/search",
   contextualFiltersEndpoint = "/api/filters/context",
 }: SetupWizardProps) {
@@ -442,7 +444,7 @@ export default function SetupWizard({
               disabled={loading || !contextIsCurrent || available?.song_count === 0}
               onClick={() => onStart(filters)}
             >
-              <span>{loading ? "Cueing…" : "Play"}</span>
+              <span>{loading ? "Cueing…" : startLabel}</span>
               <b aria-hidden="true">▶</b>
             </button>
           </div>

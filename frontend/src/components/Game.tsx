@@ -23,6 +23,16 @@ import SetupWizard, { type ArtistOption, type SetupFilters } from "./SetupWizard
 import Tutorial, { hasSeenTutorial } from "./Tutorial";
 import VinylSleeveReveal from "./VinylSleeveReveal";
 import "./VinylControls.css";
+import ChallengeRoom from "./ChallengeRoom";
+import {
+  ModeSelection,
+  MultiplayerMenu,
+  JoinChallenge,
+  ChallengeDetails,
+  SetupNavigation,
+} from "./PlaySetup";
+import { useRoom } from "./useRoom";
+import { roomHistory } from "../lib/rooms";
 
 const SNIPPET_DURATIONS = [1, 2, 4, 7, 11, 15] as const;
 const CURRENT_YEAR = new Date().getFullYear();
@@ -33,6 +43,7 @@ export function shouldSearchSongs(query: string): boolean {
   return query.trim().length === 0 || query.trim().length >= 2;
 }
 export const DEFAULT_VOLUME = 0.5;
+const VOLUME_SESSION_STORAGE_KEY = "songuess-volume";
 
 export function potentialPointsForAttempt(attempt: number): number {
   return Math.max(0, SNIPPET_DURATIONS.length - Math.max(0, attempt));
@@ -200,6 +211,8 @@ const defaultFilters: Filters = {
 };
 
 export default function Game() {
+  const room = useRoom();
+  const isRoomPlaying = room.mode === "playing";
   const [phase, setPhase] = useState<Phase>("setup");
   const [metadata, setMetadata] = useState<FilterMetadata | null>(null);
   const [draftFilters, setDraftFilters] = useState<Filters>(defaultFilters);
@@ -255,12 +268,95 @@ export default function Game() {
   const pendingSearchPagesRef = useRef(new Set<number>());
   const searchTotalCountRef = useRef(0);
   const wrongFeedbackTimerRef = useRef<number | null>(null);
+  const activeRoomRoundRef = useRef<string | null>(null);
+  const roomPlaybackRef = useRef<"clue" | "reveal" | null>(null);
   const unlockedDuration = SNIPPET_DURATIONS[attempt];
   const personalStats = useMemo(() => calculatePersonalStats(roundHistory), [roundHistory]);
 
   useEffect(() => {
+    if (!isRoomPlaying || !room.state) {
+      activeRoomRoundRef.current = null;
+      roomPlaybackRef.current = null;
+      return;
+    }
+    const current = room.state.current_round;
+    if (room.result) {
+      stopAudio(true);
+      roomPlaybackRef.current = "reveal";
+      setAttempt(
+        room.result.result === "not_guessed" ? 5 : Number(room.result.result.slice(-1)) - 1,
+      );
+      setCurrentSongId(null);
+      setPreviewUrl(room.result.reveal.preview_url);
+      setRevealedSong(room.result.reveal);
+      setPreparedReveal(null);
+      setOutcome(room.result.result === "not_guessed" ? "failed" : "correct");
+      setPhase("revealed");
+    } else if (current) {
+      const roundKey = `${room.state.code}:${room.state.guest_id}:${current.position}`;
+      if (activeRoomRoundRef.current !== roundKey) {
+        stopAudio(true);
+        resetRoundUi();
+        activeRoomRoundRef.current = roundKey;
+      } else {
+        const newGuesses = current.guesses.filter(
+          (guess) => !previousGuessesRef.current.some((previous) => previous.id === guess.id),
+        );
+        if (newGuesses.length) {
+          showWrongFeedback();
+          const guessedIds = new Set(newGuesses.map((guess) => guess.id));
+          const excludedIndexes = searchResults.flatMap((result) =>
+            guessedIds.has(result.id) && result.searchIndex !== undefined
+              ? [result.searchIndex]
+              : [],
+          );
+          const remainingResults = searchResults.filter((result) => !guessedIds.has(result.id));
+          setSearchResults(remainingResults);
+          setExcludedSearchIndexes((indexes) => [...indexes, ...excludedIndexes]);
+          if (selectedGuess && guessedIds.has(selectedGuess.id)) {
+            setSelectedGuess(excludeWrongGuess(searchResults, selectedGuess.id).nextGuess);
+          }
+        }
+      }
+      setCurrentSongId(null);
+      setPreviewUrl(current.preview_url);
+      setAttempt(current.clue_number - 1);
+      previousGuessesRef.current = current.guesses;
+      setPreviousGuesses(current.guesses);
+      setPhase("playing");
+    }
+  }, [isRoomPlaying, room.state, room.result]);
+
+  useEffect(() => {
+    if (!room.state) return;
+    for (const record of roomHistory(room.state)) persistRoundHistory(record);
+  }, [room.state]);
+
+  useEffect(() => {
+    if (room.mode !== "playing") {
+      stopAudio(true);
+      setPhase("setup");
+    }
+  }, [room.mode]);
+
+  useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [phase]);
+
+  useEffect(() => {
+    if (room.mode === "playing") return;
+    window.scrollTo({ top: 0, behavior: "instant" });
+    const frame = window.requestAnimationFrame(() => {
+      const heading = document.querySelector<HTMLElement>(
+        "[data-flow-heading], .game-shell > div:not([hidden]) .setup-wizard-header h1",
+      );
+      if (heading) {
+        heading.tabIndex = -1;
+        heading.focus({ preventScroll: true });
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [room.mode]);
 
   useEffect(() => {
     const storedHistory = loadRoundHistory();
@@ -373,6 +469,26 @@ export default function Game() {
   }, [previewUrl]);
 
   useEffect(() => {
+    try {
+      const saved = window.sessionStorage.getItem(VOLUME_SESSION_STORAGE_KEY);
+      if (saved === null || saved.trim() === "") return;
+      const value = Number(saved);
+      if (Number.isFinite(value) && value >= 0 && value <= 1) setVolume(value);
+    } catch {
+      // Playback remains available when browser storage is disabled.
+    }
+  }, []);
+
+  function changeVolume(value: number) {
+    setVolume(value);
+    try {
+      window.sessionStorage.setItem(VOLUME_SESSION_STORAGE_KEY, String(value));
+    } catch {
+      // The volume still applies for the currently mounted game.
+    }
+  }
+
+  useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
 
@@ -414,6 +530,16 @@ export default function Game() {
   }, [phase, unlockedDuration]);
 
   useEffect(() => {
+    if (!isRoomPlaying || !roomPlaybackRef.current) return;
+    const playback = roomPlaybackRef.current;
+    if (playback === "reveal" && phase !== "revealed") return;
+    if (playback === "clue" && phase !== "playing") return;
+    roomPlaybackRef.current = null;
+    if (playback === "reveal") void playFullPreview(true);
+    else if (audioRef.current?.paused) void playFullPreview();
+  }, [isRoomPlaying, phase, attempt, previewUrl]);
+
+  useEffect(() => {
     if (phase !== "playing" || !isAudioPlaying) return;
     let animationFrame = 0;
     const syncPlaybackCursor = () => {
@@ -435,7 +561,7 @@ export default function Game() {
   }, [isAudioPlaying, phase, unlockedDuration]);
 
   useEffect(() => {
-    if (currentSongId === null || phase !== "playing") return;
+    if (isRoomPlaying || currentSongId === null || phase !== "playing") return;
     let cancelled = false;
     void requestReveal(currentSongId)
       .then((song) => {
@@ -456,6 +582,7 @@ export default function Game() {
 
   useEffect(() => {
     if (
+      !isRoomPlaying &&
       currentSongId !== null &&
       ((phase === "playing" && isAudioPlaying) || phase === "revealed")
     ) {
@@ -730,6 +857,10 @@ export default function Game() {
   }
 
   async function startNextRound() {
+    if (isRoomPlaying) {
+      await room.resume();
+      return;
+    }
     if (isAdvancingRoundRef.current) return;
     isAdvancingRoundRef.current = true;
     const playlistGeneration = playlistGenerationRef.current;
@@ -791,6 +922,11 @@ export default function Game() {
   }
 
   async function finishRound(nextOutcome: RoundOutcome) {
+    if (isRoomPlaying) {
+      setIsRevealArmed(false);
+      await room.action("give_up");
+      return;
+    }
     if (currentSongId === null) return;
     const generation = roundGenerationRef.current;
     let historyRecordId: string | null = null;
@@ -838,6 +974,10 @@ export default function Game() {
   }
 
   async function retryReveal() {
+    if (isRoomPlaying) {
+      await room.resume();
+      return;
+    }
     if (currentSongId === null) return;
     const generation = roundGenerationRef.current;
     setIsRevealLoading(true);
@@ -863,6 +1003,12 @@ export default function Game() {
   }
 
   function advanceAttempt({ resumePlayback = false, preserveSearch = false } = {}) {
+    if (isRoomPlaying) {
+      setIsRevealArmed(false);
+      roomPlaybackRef.current = resumePlayback ? "clue" : null;
+      void room.action("skip");
+      return;
+    }
     setIsRevealArmed(false);
     if (!preserveSearch) {
       setSelectedGuess(null);
@@ -892,6 +1038,11 @@ export default function Game() {
   }
 
   function submitGuess() {
+    if (isRoomPlaying) {
+      if (selectedGuess && query.trim() === searchResultsQuery && shouldSearchSongs(query))
+        void room.action("guess", selectedGuess.id);
+      return;
+    }
     if (
       !selectedGuess ||
       currentSongId === null ||
@@ -957,6 +1108,10 @@ export default function Game() {
   }
 
   function changeFilters() {
+    if (isRoomPlaying) {
+      room.exit();
+      return;
+    }
     ++roundGenerationRef.current;
     invalidatePrefetchedRounds();
     stopAudio(true);
@@ -1007,7 +1162,7 @@ export default function Game() {
                     aria-label="Audio settings"
                   >
                     <span className="utility-popover-label">Volume</span>
-                    <VolumeControl volume={volume} onChange={setVolume} />
+                    <VolumeControl volume={volume} onChange={changeVolume} />
                   </div>
                 )}
               </div>
@@ -1070,26 +1225,72 @@ export default function Game() {
         </div>
       )}
 
-      {phase === "setup" || phase === "loading" ? (
-        <SetupWizard
-          filters={draftFilters}
-          metadata={metadata}
-          error={appError}
-          loading={phase === "loading"}
-          onChange={setDraftFilters}
-          onStart={beginGame}
-        />
+      {room.mode === "choose" ? (
+        <ModeSelection onSolo={room.solo} onMultiplayer={room.multiplayer} />
+      ) : room.mode === "multiplayer" ? (
+        <MultiplayerMenu room={room} />
+      ) : room.mode === "join" ? (
+        <JoinChallenge room={room} />
+      ) : room.mode === "summary" ? (
+        <ChallengeRoom key={room.code} room={room} />
+      ) : phase === "setup" || phase === "loading" ? (
+        <>
+          <div hidden={room.mode === "details"}>
+            <SetupNavigation
+              label={room.mode === "solo" ? "Solo · Pick your mix" : "Multiplayer · Pick your mix"}
+              onBack={room.mode === "solo" ? room.home : room.multiplayer}
+              disabled={phase === "loading" || room.pending}
+            />
+            <SetupWizard
+              filters={draftFilters}
+              metadata={metadata}
+              error={appError}
+              loading={phase === "loading" || room.pending}
+              startLabel={room.mode === "solo" ? "Play solo" : "Challenge details"}
+              onChange={setDraftFilters}
+              onStart={room.mode === "solo" ? beginGame : () => room.setMode("details")}
+            />
+          </div>
+          {room.mode === "details" && <ChallengeDetails room={room} filters={draftFilters} />}
+        </>
       ) : (
         <div className={`play-stack phase-${phase}`}>
+          {isRoomPlaying && (
+            <div className="challenge-game-bar">
+              <span>
+                Song {room.result?.position ?? room.state?.current_round?.position} of{" "}
+                {room.summary?.song_count ?? "?"} · {room.state?.total_points ?? 0} points
+              </span>
+              <button type="button" onClick={room.exit}>
+                Challenge room
+              </button>
+            </div>
+          )}
+          {isRoomPlaying && room.error && (
+            <p role="alert" className="inline-error">
+              {room.error}
+            </p>
+          )}
+          {isRoomPlaying && room.uncertain && (
+            <button type="button" disabled={room.pending} onClick={() => void room.resume()}>
+              Refresh my progress to continue
+            </button>
+          )}
           <div className="round-topline">
             <span>
-              {[
-                activeFilters.artist?.name ?? "All artists",
-                activeFilters.genres.length ? activeFilters.genres.join(" · ") : "All genres",
-                activeFilters.countries.length
-                  ? activeFilters.countries.map(countryDisplay).join(" · ")
-                  : "All origins",
-              ].join(" — ")}
+              {isRoomPlaying
+                ? [
+                    room.summary?.filters.genres.join(" · ") || "All genres",
+                    room.summary?.filters.countries.map(countryDisplay).join(" · ") ||
+                      "All origins",
+                  ].join(" — ")
+                : [
+                    activeFilters.artist?.name ?? "All artists",
+                    activeFilters.genres.length ? activeFilters.genres.join(" · ") : "All genres",
+                    activeFilters.countries.length
+                      ? activeFilters.countries.map(countryDisplay).join(" · ")
+                      : "All origins",
+                  ].join(" — ")}
             </span>
           </div>
 
@@ -1153,12 +1354,15 @@ export default function Game() {
                     </VinylSleeveReveal>
                     <nav className="game-actions-dock" aria-label="Round controls">
                       <button
+                        disabled={isRoomPlaying && (room.pending || room.uncertain)}
                         ref={revealButtonRef}
                         className={`dock-side-action dock-reveal${isRevealArmed ? " is-confirming" : ""}`}
                         type="button"
                         aria-label={
                           phase === "revealed"
-                            ? "Change filters"
+                            ? isRoomPlaying
+                              ? "Back to room"
+                              : "Change filters"
                             : isRevealArmed
                               ? "Confirm reveal song"
                               : "Reveal song"
@@ -1171,7 +1375,11 @@ export default function Game() {
                         }}
                       >
                         {phase === "revealed" ? (
-                          "Change filters"
+                          isRoomPlaying ? (
+                            "Back to room"
+                          ) : (
+                            "Change filters"
+                          )
                         ) : (
                           <span className="reveal-button-copy" aria-live="polite">
                             <span className="reveal-button-default">Reveal</span>
@@ -1201,6 +1409,7 @@ export default function Game() {
                         </button>
                       )}
                       <button
+                        disabled={isRoomPlaying && (room.pending || room.uncertain)}
                         className="dock-side-action dock-skip"
                         type="button"
                         onClick={
@@ -1230,7 +1439,10 @@ export default function Game() {
                             value={query}
                             autoComplete="off"
                             placeholder="Song or artist…"
-                            disabled={phase === "revealed"}
+                            disabled={
+                              phase === "revealed" ||
+                              (isRoomPlaying && (room.pending || room.uncertain))
+                            }
                             onChange={(event) => {
                               setQuery(event.target.value);
                               setSelectedGuess(null);
@@ -1276,6 +1488,7 @@ export default function Game() {
                           className="primary-action"
                           type="button"
                           disabled={
+                            (isRoomPlaying && (room.pending || room.uncertain)) ||
                             !selectedGuess ||
                             phase === "revealed" ||
                             query.trim() !== searchResultsQuery ||

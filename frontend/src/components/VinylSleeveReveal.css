@@ -61,11 +61,11 @@
 }
 
 .vinyl-sleeve-reveal.is-revealed .vinyl-sleeve-reveal__spine {
-  animation: vinyl-sleeve-spine-enter 1700ms cubic-bezier(0.16, 0.82, 0.2, 1) both;
+  animation: vinyl-sleeve-spine-enter 2100ms cubic-bezier(0.16, 0.82, 0.2, 1) both;
 }
 
 .vinyl-sleeve-reveal.is-revealed .vinyl-sleeve-reveal__sleeve {
-  animation: vinyl-sleeve-enter 1700ms cubic-bezier(0.16, 0.82, 0.2, 1) both;
+  animation: vinyl-sleeve-enter 2100ms cubic-bezier(0.16, 0.82, 0.2, 1) both;
 }
 
 .vinyl-sleeve-reveal__artwork,
@@ -116,7 +116,7 @@
   align-items: start;
   margin: -0.15rem auto 0;
   padding: 0.8rem 0 0;
-  animation: vinyl-sleeve-caption-in 480ms 1100ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
+  animation: vinyl-sleeve-caption-in 480ms 1450ms cubic-bezier(0.2, 0.75, 0.2, 1) both;
 }
 
 .vinyl-sleeve-reveal__outcome {
@@ -553,7 +553,7 @@
 .vinyl-sleeve-reveal__scene {
   position: absolute;
   z-index: 3;
-  inset: 0;
+  inset: auto;
   opacity: 0;
   pointer-events: none;
 }
@@ -573,9 +573,9 @@
 .vinyl-sleeve-reveal.is-vinyl-ready .vinyl-flipper {
   visibility: hidden;
 }
-/* Keep progress ticks and the play control above the decorative canvas. */
+/* The tonearm crosses above the progress ticks; the action dock stays above it. */
 .vinyl-sleeve-reveal:not(.is-revealed) .vinyl-sleeve-reveal__scene {
-  z-index: 1;
+  z-index: 3;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -611,4 +611,115 @@
 
 .vinyl-sleeve-reveal.is-reveal-pending .vinyl-sleeve-reveal__confetti span {
   animation: none;
+}
+
+/* The deck controls appear only after the extracted record has been placed. */
+.vinyl-sleeve-reveal.is-returning .vinyl-sleeve-reveal__record {
+  visibility: hidden;
+}
+.vinyl-sleeve-reveal.is-returning .vinyl-sleeve-reveal__scene {
+  z-index: 3;
+}
+.listening-card:has(.vinyl-sleeve-reveal.is-returning) .game-actions-dock {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Interface handoffs bracket the motion. Preserve layout space while hidden. */
+.play-stack .round-topline,
+.play-stack .clue-status,
+.play-stack .round-answer-surface,
+.play-stack .challenge-game-bar,
+.game-shell .utility-controls {
+  transition: opacity 180ms ease;
+}
+.play-stack:has(.vinyl-sleeve-reveal.is-revealed:not(.is-settled)) .round-topline,
+.play-stack:has(.vinyl-sleeve-reveal.is-revealed:not(.is-settled)) .clue-status,
+.play-stack:has(.vinyl-sleeve-reveal.is-revealed:not(.is-settled)) .round-answer-surface,
+.play-stack:has(.vinyl-sleeve-reveal.is-revealed:not(.is-settled)) .challenge-game-bar,
+.play-stack:has(.vinyl-sleeve-reveal.is-returning) .round-topline,
+.play-stack:has(.vinyl-sleeve-reveal.is-returning) .clue-status,
+.play-stack:has(.vinyl-sleeve-reveal.is-returning) .round-answer-surface,
+.play-stack:has(.vinyl-sleeve-reveal.is-returning) .challenge-game-bar,
+.game-shell:has(.vinyl-sleeve-reveal.is-returning) .utility-controls {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.vinyl-sleeve-reveal.is-revealed:not(.is-settled) .vinyl-sleeve-reveal__caption,
+.vinyl-sleeve-reveal.is-revealed:not(.is-settled) .vinyl-sleeve-reveal__confetti {
+  opacity: 0;
+  visibility: hidden;
+  animation: none;
+}
+.vinyl-sleeve-reveal.is-revealed:not(.is-settled) .vinyl-sleeve-reveal__confetti span,
+.vinyl-sleeve-reveal.outcome-correct.is-revealed:not(.is-settled)
+  .vinyl-sleeve-reveal__stage::before,
+.vinyl-sleeve-reveal.outcome-correct.is-revealed:not(.is-settled)
+  .vinyl-sleeve-reveal__stage::after {
+  animation: none;
+}
+.vinyl-sleeve-reveal.is-settled .vinyl-sleeve-reveal__caption {
+  animation: vinyl-sleeve-caption-in 360ms ease-out both;
+}
+.vinyl-sleeve-reveal.is-settled .vinyl-sleeve-reveal__confetti span {
+  animation-delay: calc(var(--confetti-delay, 120ms) - 120ms);
+}
+.vinyl-sleeve-reveal.outcome-correct.is-settled .vinyl-sleeve-reveal__stage::before,
+.vinyl-sleeve-reveal.outcome-correct.is-settled .vinyl-sleeve-reveal__stage::after {
+  animation-delay: 0ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vinyl-sleeve-reveal.is-settled .vinyl-sleeve-reveal__caption {
+    animation-duration: 1ms;
+  }
+}
+
+.game-shell .brand-lockup {
+  transition:
+    opacity 180ms ease,
+    visibility 0s;
+}
+.game-shell:has(.vinyl-sleeve-reveal.is-revealed:not(.is-settled)) .brand-lockup,
+.game-shell:has(.vinyl-sleeve-reveal.is-returning) .brand-lockup {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 180ms ease,
+    visibility 0s 180ms;
+}
+
+/* Keep the existing mobile burst; desktop celebrates beside both objects. */
+.vinyl-sleeve-reveal__confetti--left,
+.vinyl-sleeve-reveal__confetti--right {
+  display: none;
+}
+@media (min-width: 42rem) {
+  .vinyl-sleeve-reveal__confetti:not(.vinyl-sleeve-reveal__confetti--left):not(
+      .vinyl-sleeve-reveal__confetti--right
+    ) {
+    display: none;
+  }
+  .vinyl-sleeve-reveal__confetti--left,
+  .vinyl-sleeve-reveal__confetti--right {
+    display: block;
+    inset: auto;
+    top: calc(50% - var(--deck-sleeve-size) / 2 + 2rem);
+    width: 6rem;
+    height: 5rem;
+    transform: translate(-50%, -50%);
+  }
+  .vinyl-sleeve-reveal__confetti--left {
+    left: calc(50% - var(--deck-reveal-half-offset) - var(--deck-sleeve-size) / 2 - 2rem);
+  }
+  .vinyl-sleeve-reveal__confetti--right {
+    left: calc(50% + var(--deck-reveal-half-offset) + var(--deck-sleeve-size) / 2 + 2rem);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-shell .brand-lockup {
+    transition: none;
+  }
 }

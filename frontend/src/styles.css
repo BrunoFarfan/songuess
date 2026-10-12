@@ -133,7 +133,7 @@ main {
 }
 
 /* The final setup review is an information-rich screen, not a narrow form. */
-.game-shell:has(.setup-wizard.view-review) {
+.game-shell:has(> div:not([hidden]) .setup-wizard.view-review) {
   width: min(100%, 64rem);
 }
 .game-shell:has(.phase-revealed) {
@@ -1267,6 +1267,27 @@ legend,
     0 0 0 0.35rem rgba(255, 101, 71, 0.11),
     0 0.8rem 1.8rem rgba(0, 0, 0, 0.38);
 }
+@media (hover: hover) and (pointer: fine) {
+  .play-stack .vinyl-control-deck .dock-reveal.is-confirming:hover:not(:disabled),
+  .play-stack .vinyl-control-deck .dock-reveal.is-confirming:focus-visible:not(:disabled) {
+    box-shadow:
+      0.32rem 0.32rem 0 var(--ink),
+      0 0 0 0.35rem rgba(255, 101, 71, 0.11),
+      0 0.8rem 1.8rem rgba(0, 0, 0, 0.38);
+    transform: translate(-0.08rem, -0.08rem);
+  }
+}
+/* Move the face onto its fixed seat, consuming the raised shadow's offset. */
+.play-stack .vinyl-control-deck .dock-reveal.is-confirming:active:not(:disabled),
+.play-stack
+  .vinyl-control-deck
+  .dock-reveal.is-confirming[data-button-feedback="tap"]:not(:disabled) {
+  box-shadow:
+    0 0 0 var(--ink),
+    0 0 0 0.35rem rgba(255, 101, 71, 0.11),
+    0 0.8rem 1.8rem rgba(0, 0, 0, 0.38);
+  transform: translate(0.24rem, 0.24rem);
+}
 .dock-play-action {
   display: grid;
   width: 6.4rem;
@@ -1753,7 +1774,7 @@ button[data-button-feedback="click"]::after {
   .game-shell {
     width: min(100%, 36rem);
   }
-  .game-shell:has(.setup-wizard.view-review) {
+  .game-shell:has(> div:not([hidden]) .setup-wizard.view-review) {
     width: min(100%, 64rem);
   }
   .listening-card,
@@ -1768,7 +1789,7 @@ button[data-button-feedback="click"]::after {
     place-items: start center;
     padding-bottom: var(--safe-block-end);
   }
-  .game-shell:has(.setup-wizard.view-review) {
+  .game-shell:has(> div:not([hidden]) .setup-wizard.view-review) {
     width: min(100%, 64rem);
   }
   main:has(.phase-revealed) {

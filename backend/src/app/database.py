@@ -40,6 +40,10 @@ class Database(Protocol):
 
     async def fetch_one(self, statement: str, parameters: Sequence[object] = ()) -> Row | None: ...
 
+    async def execute(self, statement: str, parameters: Sequence[object] = ()) -> int: ...
+
+    async def batch(self, statements: Sequence[tuple[str, Sequence[object]]]) -> list[int]: ...
+
 
 class SQLiteDatabase:
     """Async-shaped adapter around local CPython SQLite.
@@ -62,6 +66,13 @@ class SQLiteDatabase:
     async def fetch_one(self, statement: str, parameters: Sequence[object] = ()) -> Row | None:
         return self.connection.execute(statement, parameters).fetchone()
 
+    async def execute(self, statement: str, parameters: Sequence[object] = ()) -> int:
+        return (await self.batch([(statement, parameters)]))[0]
+
+    async def batch(self, statements: Sequence[tuple[str, Sequence[object]]]) -> list[int]:
+        with self.connection:
+            return [self.connection.execute(sql, params).rowcount for sql, params in statements]
+
 
 class D1Database:
     """Thin adapter for the D1 binding exposed in a Python Worker request."""
@@ -82,6 +93,16 @@ class D1Database:
 
     async def fetch_one(self, statement: str, parameters: Sequence[object] = ()) -> Row | None:
         return await self._prepare(statement, parameters).first()
+
+    async def execute(self, statement: str, parameters: Sequence[object] = ()) -> int:
+        result = await self._prepare(statement, parameters).run()
+        return int(result.meta.changes)
+
+    async def batch(self, statements: Sequence[tuple[str, Sequence[object]]]) -> list[int]:
+        results = await self.binding.batch(
+            [self._prepare(sql, params) for sql, params in statements]
+        )
+        return [int(result.meta.changes) for result in results]
 
 
 async def request_database(request: Request) -> AsyncIterator[Database]:

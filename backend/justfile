@@ -16,6 +16,10 @@ test:
 dev:
   uv run uvicorn --app-dir src app.main:app --reload
 
+# Run the same room retention cleanup used by the hourly Worker schedule.
+rooms-cleanup:
+  PYTHONPATH=src uv run python -m app.rooms_cleanup
+
 # Run an explicit offline dataset module without accumulating one-off recipes.
 dataset module *args:
   cd .. && uv run --project backend python -m dataset.{{module}} {{args}}
