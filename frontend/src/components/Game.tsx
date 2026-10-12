@@ -269,6 +269,8 @@ export default function Game() {
   const searchTotalCountRef = useRef(0);
   const wrongFeedbackTimerRef = useRef<number | null>(null);
   const activeRoomRoundRef = useRef<string | null>(null);
+  const activeRoomRevealRef = useRef<string | null>(null);
+  const prefetchedAudioRef = useRef<HTMLAudioElement | null>(null);
   const roomPlaybackRef = useRef<"clue" | "reveal" | null>(null);
   const unlockedDuration = SNIPPET_DURATIONS[attempt];
   const personalStats = useMemo(() => calculatePersonalStats(roundHistory), [roundHistory]);
@@ -276,13 +278,18 @@ export default function Game() {
   useEffect(() => {
     if (!isRoomPlaying || !room.state) {
       activeRoomRoundRef.current = null;
+      activeRoomRevealRef.current = null;
       roomPlaybackRef.current = null;
       return;
     }
     const current = room.state.current_round;
     if (room.result) {
-      stopAudio(true);
-      roomPlaybackRef.current = "reveal";
+      const revealKey = `${room.state.code}:${room.state.guest_id}:${room.result.position}:${room.result.result}`;
+      if (activeRoomRevealRef.current !== revealKey) {
+        stopAudio(true);
+        roomPlaybackRef.current = "reveal";
+        activeRoomRevealRef.current = revealKey;
+      }
       setAttempt(
         room.result.result === "not_guessed" ? 5 : Number(room.result.result.slice(-1)) - 1,
       );
@@ -293,6 +300,7 @@ export default function Game() {
       setOutcome(room.result.result === "not_guessed" ? "failed" : "correct");
       setPhase("revealed");
     } else if (current) {
+      activeRoomRevealRef.current = null;
       const roundKey = `${room.state.code}:${room.state.guest_id}:${current.position}`;
       if (activeRoomRoundRef.current !== roundKey) {
         stopAudio(true);
@@ -318,7 +326,11 @@ export default function Game() {
           }
         }
       }
-      setCurrentSongId(null);
+      const cachedSong = room.state.playlist.find(
+        (song) => song.position === current.position,
+      )?.reveal;
+      setCurrentSongId(cachedSong?.id ?? null);
+      setPreparedReveal(cachedSong ? { id: cachedSong.id, song: cachedSong } : null);
       setPreviewUrl(current.preview_url);
       setAttempt(current.clue_number - 1);
       previousGuessesRef.current = current.guesses;
@@ -328,9 +340,9 @@ export default function Game() {
   }, [isRoomPlaying, room.state, room.result]);
 
   useEffect(() => {
-    if (!room.state) return;
-    for (const record of roomHistory(room.state)) persistRoundHistory(record);
-  }, [room.state]);
+    if (!room.confirmedState) return;
+    for (const record of roomHistory(room.confirmedState)) persistRoundHistory(record);
+  }, [room.confirmedState]);
 
   useEffect(() => {
     if (room.mode !== "playing") {
@@ -581,6 +593,28 @@ export default function Game() {
   }, [phase]);
 
   useEffect(() => {
+    if (!room.state || (room.mode !== "playing" && room.mode !== "summary")) return;
+    const current = room.state.current_round;
+    if (!current) return;
+    if (room.mode === "summary") setPreviewUrl(current.preview_url);
+    const next = room.state.playlist.find((song) => song.position === current.position + 1);
+    prefetchPreview(room.result ? current.preview_url : next?.reveal.preview_url);
+    const currentSong = room.state.playlist.find((song) => song.position === current.position);
+    void import("../lib/sceneAssets")
+      .then((assets) =>
+        Promise.all([
+          assets.preloadSceneModels(),
+          ...[currentSong, next].flatMap((song) =>
+            song?.reveal.artwork_url ? [assets.preloadArtwork(song.reveal.artwork_url)] : [],
+          ),
+        ]),
+      )
+      .catch(() => {});
+    void import("./VinylRevealScene").catch(() => {});
+    void prefetchCarousel().catch(() => {});
+  }, [room.mode, room.state?.code, room.state?.current_round?.position, room.result?.position]);
+
+  useEffect(() => {
     if (
       !isRoomPlaying &&
       currentSongId !== null &&
@@ -594,6 +628,8 @@ export default function Game() {
     () => () => {
       ++playlistGenerationRef.current;
       prefetchControllerRef.current?.abort();
+      prefetchedAudioRef.current?.removeAttribute("src");
+      prefetchedAudioRef.current?.load();
     },
     [],
   );
@@ -765,6 +801,22 @@ export default function Game() {
     prefetchControllerRef.current = null;
     prefetchedRoundsRef.current = [];
     prefetchPromiseRef.current = null;
+    prefetchPreview();
+  }
+
+  function prefetchPreview(url?: string) {
+    const audio = prefetchedAudioRef.current;
+    if (!url) {
+      audio?.removeAttribute("src");
+      audio?.load();
+      return;
+    }
+    if (audio?.getAttribute("src") === url) return;
+    const nextAudio = audio ?? new Audio();
+    nextAudio.preload = "auto";
+    nextAudio.src = url;
+    nextAudio.load();
+    prefetchedAudioRef.current = nextAudio;
   }
 
   function ensurePrefetchedRounds(filters: Filters): Promise<void> {
@@ -792,7 +844,7 @@ export default function Game() {
           return null;
         }
       },
-      () => undefined,
+      () => prefetchPreview(prefetchedRoundsRef.current[0]?.preview_url),
     ).finally(() => {
       if (prefetchPromiseRef.current === task) prefetchPromiseRef.current = null;
     });
@@ -858,7 +910,7 @@ export default function Game() {
 
   async function startNextRound() {
     if (isRoomPlaying) {
-      await room.resume();
+      room.next();
       return;
     }
     if (isAdvancingRoundRef.current) return;
@@ -924,7 +976,7 @@ export default function Game() {
   async function finishRound(nextOutcome: RoundOutcome) {
     if (isRoomPlaying) {
       setIsRevealArmed(false);
-      await room.action("give_up");
+      room.action("give_up");
       return;
     }
     if (currentSongId === null) return;
@@ -1040,7 +1092,7 @@ export default function Game() {
   function submitGuess() {
     if (isRoomPlaying) {
       if (selectedGuess && query.trim() === searchResultsQuery && shouldSearchSongs(query))
-        void room.action("guess", selectedGuess.id);
+        void room.action("guess", selectedGuess.id, selectedGuess);
       return;
     }
     if (

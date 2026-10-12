@@ -100,11 +100,18 @@ class CompletedRound(BaseModel):
     reveal: SongReveal
 
 
+class PlaylistSong(BaseModel):
+    position: int
+    reveal: SongReveal
+
+
 class RoomState(BaseModel):
     code: str
     guest_id: str
     display_name: str
     closed: bool
+    closes_at: str
+    playlist: list[PlaylistSong] = Field(max_length=20)
     completed_count: int
     total_points: int
     current_round: CurrentRound | None
@@ -299,6 +306,10 @@ async def _state(database: Database, room, guest: str):
         "guest_id": guest,
         "display_name": member["display_name"],
         "closed": closed,
+        "closes_at": _timestamp(room["closes_at"]),
+        "playlist": [
+            {"position": row["position"], "reveal": json.loads(row["reveal_json"])} for row in rows
+        ],
         "completed_count": sum(row["result"] is not None for row in rows),
         "total_points": _score(rows)[0],
         "results": results,
