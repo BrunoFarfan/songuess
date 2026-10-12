@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import UTC, datetime
 
 import pytest
 from dataset.populate import initialize_database
@@ -107,6 +108,66 @@ def test_resume_score_ties_and_open_join(catalog):
     assert summary["participant_count"] == 2
 
 
+def test_frozen_playlist_prefetch_and_deadline_do_not_advance_progress(catalog):
+    c = client()
+    code = create(c, 4)
+    with connect(catalog) as connection:
+        frozen = connection.execute(
+            "SELECT position, reveal_json FROM room_songs WHERE room_code=? ORDER BY position",
+            (code,),
+        ).fetchall()
+        before = [
+            dict(row)
+            for row in connection.execute(
+                "SELECT * FROM participant_rounds WHERE room_code=? ORDER BY position", (code,)
+            )
+        ]
+    expected_playlist = [
+        {"position": row["position"], "reveal": json.loads(row["reveal_json"])} for row in frozen
+    ]
+    summary = c.get(f"/api/rooms/{code}").json()
+    state = c.get(f"/api/rooms/{code}/me").json()
+    assert state["playlist"] == expected_playlist
+    assert [song["position"] for song in state["playlist"]] == [1, 2, 3, 4]
+    assert state["closes_at"] == summary["closes_at"]
+    assert datetime.fromisoformat(state["closes_at"]).tzinfo == UTC
+    assert state["completed_count"] == 0 and state["results"] == []
+    assert state["current_round"]["position"] == 1
+    assert "reveal" not in state["current_round"]
+    assert "song_id" not in state["current_round"]
+    assert "playlist" not in summary
+    assert c.get(f"/api/rooms/{code}/me").json() == state
+    assert c.post(f"/api/rooms/{code}/join", json={"display_name": "Player"}).json() == state
+    with connect(catalog) as connection:
+        after = [
+            dict(row)
+            for row in connection.execute(
+                "SELECT * FROM participant_rounds WHERE room_code=? ORDER BY position", (code,)
+            )
+        ]
+        assert after == before
+        connection.execute("DELETE FROM songs")
+        connection.commit()
+    assert c.get(f"/api/rooms/{code}/me").json() == state
+    other = client()
+    assert other.get(f"/api/rooms/{code}/me").status_code == 403
+    assert (
+        other.post(
+            f"/api/rooms/{code}/actions",
+            json={"action": "skip", "position": 1, "expected_version": 0},
+        ).status_code
+        == 403
+    )
+    joined = other.post(f"/api/rooms/{code}/join", json={"display_name": "Guest"}).json()
+    assert joined["playlist"] == expected_playlist
+    assert joined["closes_at"] == state["closes_at"]
+    completed = act(c, code, "give_up").json()
+    assert completed["state"]["playlist"] == expected_playlist
+    assert completed["state"]["closes_at"] == state["closes_at"]
+    assert completed["round"]["reveal"] == expected_playlist[0]["reveal"]
+    assert completed["state"]["current_round"]["position"] == 2
+
+
 def test_wrong_guess_duplicate_final_clue_and_cas(catalog):
     c = client()
     code = create(c, 1)
@@ -135,6 +196,8 @@ def test_future_round_and_deadline(catalog):
         connection.commit()
     state = c.get(f"/api/rooms/{code}/me").json()
     assert state["closed"] and state["current_round"] is None
+    assert state["closes_at"] == "1970-01-01T00:00:00Z"
+    assert len(state["playlist"]) == 2
     assert len(state["results"]) == 2
     assert all(result["result"] == "not_guessed" for result in state["results"])
     assert act(c, code, "skip", position=1, version=0).status_code == 409
@@ -189,6 +252,7 @@ def test_snapshots_survive_catalog_replacement_and_cleanup(catalog):
         connection.execute("UPDATE rooms SET closes_at=0,delete_at=1")
         connection.commit()
     assert c.get(f"/api/rooms/{code}").status_code == 404
+    assert c.get(f"/api/rooms/{code}/me").status_code == 404
     with connect(catalog) as connection:
         assert asyncio.run(cleanup_expired_rooms(SQLiteDatabase(connection), 1)) == 1
         for table in ["rooms", "room_songs", "participants", "participant_rounds"]:

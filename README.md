@@ -165,6 +165,13 @@ Standings are visible during play and refresh while the room panel is visible. T
 the number of correct answers, then clue-1 solves through clue-6 solves; equal results
 share a rank. Other players' song answers are not included in standings.
 
+Participants preload the frozen playlist, including reveal details, and warm upcoming
+audio, artwork, and scene assets. Clues, guesses, reveals, and the next song update
+immediately while versioned actions save in order in the background. The server still
+checks the deadline and calculates scores; a failed or conflicting save reloads saved
+progress before play continues. Playlist answers are available to participants in browser
+tools, just as in solo play; this casual challenge favors fast playback over hiding answers.
+
 A signed, HttpOnly guest cookie identifies the browser for 30 days. Names are display
 labels: changing one cannot create another entry in the same room. Clearing cookies or
 switching browsers loses this identity and can create another entry. This is a casual
@@ -179,7 +186,7 @@ Challenge endpoints:
 | POST | `/api/rooms` | Freeze a room and join its creator |
 | GET | `/api/rooms/{code}` | Room summary and leaderboard |
 | POST | `/api/rooms/{code}/join` | Join or recover existing participation |
-| GET | `/api/rooms/{code}/me` | Saved progress, current round, and completed reveals |
+| GET | `/api/rooms/{code}/me` | Saved progress, deadline, and frozen playlist for prefetching |
 | POST | `/api/rooms/{code}/actions` | Versioned guess, skip, or give-up action |
 
 After the deadline, joining and scoring stop immediately, and unfinished songs count
