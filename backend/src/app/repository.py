@@ -2,7 +2,9 @@ import asyncio
 import json
 import secrets
 import sqlite3
+from array import array
 from difflib import SequenceMatcher
+from hashlib import blake2s
 
 from app.catalog_cache import cache_catalog
 from app.catalog_snapshot import CatalogSnapshot
@@ -131,6 +133,77 @@ def _fuzzy_similarity(query: str, candidate: str) -> float:
     return SequenceMatcher(None, query, candidate, autojunk=False).ratio()
 
 
+def _trigram_match_query(query: str) -> str:
+    compact = query.replace(" ", "")
+    trigrams = sorted({compact[index : index + 3] for index in range(len(compact) - 2)})
+    return " OR ".join(f'"{trigram}"' for trigram in trigrams)
+
+
+async def _song_candidates(database: Database, query: str, candidate_limit: int) -> list[Row]:
+    columns = "s.id, s.title, s.artist, s.album, s.release_year, s.artwork_url, s.popularity_score"
+    compact = query.replace(" ", "")
+    if len(compact) < 3:
+        prefix = f"{compact}%"
+        return await database.fetch_all(
+            f"SELECT {columns} FROM songs s JOIN ("
+            "SELECT song_id FROM song_search WHERE normalized_title_compact LIKE ? "
+            "UNION SELECT song_id FROM song_search WHERE normalized_artist_compact LIKE ? "
+            "UNION SELECT song_id FROM song_search WHERE normalized_album_compact LIKE ?"
+            ") candidates ON candidates.song_id = s.id "
+            "WHERE s.enabled = 1 AND s.preview_url <> '' LIMIT ?",
+            [prefix, prefix, prefix, candidate_limit],
+        )
+
+    return await database.fetch_all(
+        f"SELECT {columns} FROM song_search_fts f "
+        "JOIN songs s ON s.id = CAST(f.song_id AS INTEGER) "
+        "WHERE song_search_fts MATCH ? AND s.enabled = 1 AND s.preview_url <> '' "
+        "ORDER BY f.rank LIMIT ?",
+        [_trigram_match_query(query), candidate_limit],
+    )
+
+
+@cache_catalog(row_count=lambda ids: (len(ids) + 15) // 16)
+async def _browse_ids_async(database: Database) -> array:
+    # Compact 64-bit IDs cost 128 bytes per 16 IDs, well below a hydrated song row.
+    # Charge these blocks to the bounded row budget; hydrate only the requested page.
+    if isinstance(database, D1Database):
+        snapshot = await _catalog_snapshot_async(database)
+        if len(snapshot.songs) == snapshot.browse_count:
+            return array("q", sorted(snapshot.songs))
+        # Round snapshots omit songs without popularity; browsing still includes them.
+    rows = await database.fetch_all(
+        "SELECT id FROM songs WHERE enabled = 1 AND preview_url <> '' ORDER BY id"
+    )
+    return array("q", (int(row["id"]) for row in rows))
+
+
+def _permuted_browse_index(index: int, total: int, seed: int) -> int:
+    """Permute one position without creating a shuffled catalog per client.
+
+    A six-round keyed Feistel network is a bijection on a power-of-four domain.
+    Cycle walking restricts that bijection to the catalog's actual length. The
+    domain is less than four times the length, keeping average work per position
+    constant while preserving complete, non-overlapping pages for every seed.
+    """
+    if total <= 1:
+        return index
+    half_bits = ((total - 1).bit_length() + 1) // 2
+    mask = (1 << half_bits) - 1
+    key = str(seed).encode("ascii")
+    position = index
+    while True:
+        left, right = position >> half_bits, position & mask
+        for round_number in range(6):
+            digest = blake2s(
+                f"{round_number}:{right}".encode("ascii"), key=key, digest_size=8
+            ).digest()
+            left, right = right, left ^ (int.from_bytes(digest, "little") & mask)
+        position = (left << half_bits) | right
+        if position < total:
+            return position
+
+
 def _song_search_rank(row: Row, query: str) -> tuple[object, ...]:
     query_compact = query.replace(" ", "")
     title = _normalize_search_text(row["title"])
@@ -174,55 +247,11 @@ def _song_search_rank(row: Row, query: str) -> tuple[object, ...]:
     )
 
 
-def _trigram_match_query(query: str) -> str:
-    compact = query.replace(" ", "")
-    trigrams = sorted({compact[index : index + 3] for index in range(len(compact) - 2)})
-    return " OR ".join(f'"{trigram}"' for trigram in trigrams)
-
-
-async def _song_candidates(database: Database, query: str, candidate_limit: int) -> list[Row]:
-    columns = "s.id, s.title, s.artist, s.album, s.release_year, s.artwork_url, s.popularity_score"
-    if not query:
-        return await database.fetch_all(
-            f"SELECT {columns} FROM song_search ss "
-            "JOIN songs s ON s.id = ss.song_id "
-            "WHERE s.enabled = 1 AND s.preview_url <> '' "
-            "ORDER BY ss.normalized_title, ss.normalized_artist, s.id LIMIT ?",
-            [candidate_limit],
-        )
-
-    compact = query.replace(" ", "")
-    if len(compact) < 3:
-        prefix = f"{compact}%"
-        return await database.fetch_all(
-            f"SELECT {columns} FROM songs s JOIN ("
-            "SELECT song_id FROM song_search WHERE normalized_title_compact LIKE ? "
-            "UNION SELECT song_id FROM song_search WHERE normalized_artist_compact LIKE ? "
-            "UNION SELECT song_id FROM song_search WHERE normalized_album_compact LIKE ?"
-            ") candidates ON candidates.song_id = s.id "
-            "WHERE s.enabled = 1 AND s.preview_url <> '' LIMIT ?",
-            [prefix, prefix, prefix, candidate_limit],
-        )
-
-    return await database.fetch_all(
-        f"SELECT {columns} FROM song_search_fts f "
-        "JOIN songs s ON s.id = CAST(f.song_id AS INTEGER) "
-        "WHERE song_search_fts MATCH ? AND s.enabled = 1 AND s.preview_url <> '' "
-        "ORDER BY f.rank LIMIT ?",
-        [_trigram_match_query(query), candidate_limit],
-    )
-
-
-@cache_catalog()
-async def _browse_count_async(database: Database) -> int:
-    if isinstance(database, D1Database):
-        return (await _catalog_snapshot_async(database)).browse_count
-    row = await database.fetch_one(
-        "SELECT COUNT(*) AS total FROM song_search ss "
-        "JOIN songs s ON s.id = ss.song_id "
-        "WHERE s.enabled = 1 AND s.preview_url <> ''"
-    )
-    return int(row["total"]) if row else 0
+@cache_catalog(row_count=len)
+async def _ranked_search_rows_async(database: Database, query: str) -> list[Row]:
+    # Rank a bounded candidate pool once, then reuse it for stable pages.
+    rows = await _song_candidates(database, query, 500)
+    return sorted(rows, key=lambda row: _song_search_rank(row, query))
 
 
 @cache_catalog(row_count=lambda result: len(result[0]) + 1)
@@ -231,58 +260,34 @@ async def search_songs_async(
     query: str,
     limit: int = 40,
     offset: int = 0,
+    seed: int = 0,
 ) -> tuple[list[SongSearchResult], int]:
     if isinstance(database, SQLiteDatabase):
         database.ensure_search_index()
     normalized_query = _normalize_search_text(query)
     if not normalized_query:
-        total = await _browse_count_async(database)
-        page_size = min(limit, max(0, total - offset))
-        if page_size == 0:
+        ids = await _browse_ids_async(database)
+        total = len(ids)
+        page_ids = [
+            ids[_permuted_browse_index(position, total, seed)]
+            for position in range(offset, min(offset + limit, total))
+        ]
+        if not page_ids:
             return [], total
-        # Walk from the nearer end of the same index, preserving ascending API pages.
-        reverse_offset = total - offset - page_size
-        backwards = reverse_offset < offset
-        direction = " DESC" if backwards else ""
         rows = await database.fetch_all(
             "SELECT s.id, s.title, s.artist, s.album, s.release_year, "
-            "s.artwork_url, s.popularity_score FROM song_search ss "
-            "CROSS JOIN songs s ON s.id = ss.song_id "
-            "WHERE s.enabled = 1 AND s.preview_url <> '' "
-            f"ORDER BY ss.normalized_title{direction}, ss.normalized_artist{direction}, "
-            f"ss.song_id{direction} LIMIT ? OFFSET ?",
-            [page_size, reverse_offset if backwards else offset],
+            "s.artwork_url, s.popularity_score FROM json_each(?) page "
+            "CROSS JOIN songs s ON s.id = CAST(page.value AS INTEGER) "
+            "WHERE s.enabled = 1 AND s.preview_url <> ''",
+            [json.dumps(page_ids, separators=(",", ":"))],
         )
-        if backwards:
-            rows.reverse()
-        return [
-            SongSearchResult(
-                id=row["id"],
-                title=row["title"],
-                artist=row["artist"],
-                album=row["album"],
-                release_year=row["release_year"],
-                artwork_url=row["artwork_url"],
-                popularity_score=row["popularity_score"],
-            )
-            for row in rows
-        ], total
-
-    candidate_limit = min(max(offset + limit, 100), 500)
-    rows = await _song_candidates(database, normalized_query, candidate_limit)
-    if normalized_query:
-        ordered_rows = sorted(rows, key=lambda row: _song_search_rank(row, normalized_query))
+        by_id = {int(row["id"]): row for row in rows}
+        page_rows = [by_id[song_id] for song_id in page_ids if song_id in by_id]
     else:
-        ordered_rows = sorted(
-            rows,
-            key=lambda row: (
-                _normalize_search_text(row["title"]),
-                _normalize_search_text(row["artist"]),
-                int(row["id"]),
-            ),
-        )
-    ranked_rows = ordered_rows[offset : offset + limit]
-    items = [
+        ordered_rows = await _ranked_search_rows_async(database, normalized_query)
+        total = len(ordered_rows)
+        page_rows = ordered_rows[offset : offset + limit]
+    return [
         SongSearchResult(
             id=row["id"],
             title=row["title"],
@@ -292,9 +297,8 @@ async def search_songs_async(
             artwork_url=row["artwork_url"],
             popularity_score=row["popularity_score"],
         )
-        for row in ranked_rows
-    ]
-    return items, len(ordered_rows)
+        for row in page_rows
+    ], total
 
 
 async def search_artists_async(
@@ -618,9 +622,10 @@ def search_songs(
     query: str,
     limit: int = 40,
     offset: int = 0,
+    seed: int = 0,
 ) -> list[SongSearchResult]:
     items, _ = asyncio.run(
-        search_songs_async(SQLiteDatabase(connection), query, limit=limit, offset=offset)
+        search_songs_async(SQLiteDatabase(connection), query, limit=limit, offset=offset, seed=seed)
     )
     return items
 

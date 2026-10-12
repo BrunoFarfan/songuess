@@ -12,6 +12,8 @@ from app.catalog_snapshot import SNAPSHOT_REFRESH_SQL
 from app.database import D1Database, SQLiteDatabase, connect
 from app.models import FilterContextRequest, RoundRequest
 from app.repository import (
+    _browse_ids_async,
+    _permuted_browse_index,
     choose_round_async,
     get_contextual_filter_metadata_async,
     get_filter_metadata_async,
@@ -107,44 +109,125 @@ def test_failed_load_is_not_cached() -> None:
     assert len(attempts) == 2
 
 
-def test_browse_pages_share_count_and_use_ordered_index(catalog) -> None:
+def test_random_browse_pages_share_ids_and_use_primary_key_reads(catalog) -> None:
     binding = LocalD1(catalog)
     database = D1Database(binding)
-    first, total = asyncio.run(search_songs_async(database, "", limit=2))
-    second, _ = asyncio.run(search_songs_async(database, "", limit=2, offset=2))
-    assert [song.id for song in first + second] == [4, 2, 3, 1]
+    first, total = asyncio.run(search_songs_async(database, "", limit=2, seed=17))
+    second, _ = asyncio.run(search_songs_async(database, "", limit=2, offset=2, seed=17))
+    assert {song.id for song in first + second} == {1, 2, 3, 4}
     assert total == 4
-    assert len(binding.calls) == 3  # One snapshot read and two ordered page reads.
-    asyncio.run(search_songs_async(database, "", limit=2))
+    assert len(binding.calls) == 3  # One shared snapshot read and two detail page reads.
+    asyncio.run(search_songs_async(database, "", limit=2, seed=17))
     assert len(binding.calls) == 3
-    plan = catalog.execute("EXPLAIN QUERY PLAN " + binding.calls[-1], (2, 2)).fetchall()
+    asyncio.run(search_songs_async(database, "", limit=2, seed=18))
+    assert len(binding.calls) == 4  # A new seed shares the cached eligible ID list.
+    import json
+
+    plan = catalog.execute("EXPLAIN QUERY PLAN " + binding.calls[-1], (json.dumps([1, 2]),))
     details = " ".join(str(row["detail"]) for row in plan)
-    assert "idx_song_search_browse" in details
+    assert "INTEGER PRIMARY KEY" in details
     assert "TEMP B-TREE" not in details
+    assert not any("random()" in sql.lower() for sql in binding.calls)
+    assert database.catalog_cache.rows <= database.catalog_cache.max_rows
+
+
+def test_random_browse_reuses_warm_filter_snapshot_without_scanning_ids(catalog) -> None:
+    binding = LocalD1(catalog)
+    database = D1Database(binding)
+    asyncio.run(get_filter_metadata_async(database))
+    assert len(binding.calls) == 1
+    assert "catalog_runtime" in binding.calls[0]
+    results, total = asyncio.run(search_songs_async(database, "", 4, seed=17))
+    assert {song.id for song in results} == {1, 2, 3, 4}
+    assert total == 4
+    assert len(binding.calls) == 2
+    assert "json_each(?) page" in binding.calls[-1]
+    assert not any(sql.startswith("SELECT id FROM songs") for sql in binding.calls)
+
+
+def test_random_browse_falls_back_to_ids_when_snapshot_omits_missing_popularity(catalog) -> None:
+    catalog.execute("UPDATE songs SET popularity_score = NULL WHERE id = 4")
+    catalog.executescript(SNAPSHOT_REFRESH_SQL)
+    binding = LocalD1(catalog)
+    database = D1Database(binding)
+    asyncio.run(get_filter_metadata_async(database))
+    results, total = asyncio.run(search_songs_async(database, "", 4, seed=17))
+    assert {song.id for song in results} == {1, 2, 3, 4}
+    assert next(song for song in results if song.id == 4).popularity_score is None
+    assert total == 4
+    assert len(binding.calls) == 3
+    assert binding.calls[1].startswith("SELECT id FROM songs")
+    asyncio.run(search_songs_async(database, "", 2, seed=18))
+    assert len(binding.calls) == 4  # The fallback IDs are also cached across client seeds.
+
+
+@pytest.mark.parametrize("total", [1, 2, 3, 4, 7, 16, 17, 37, 129])
+@pytest.mark.parametrize("seed", [0, 17, 4_294_967_295])
+def test_seeded_browse_permutation_is_bijective(total, seed) -> None:
+    positions = [_permuted_browse_index(index, total, seed) for index in range(total)]
+    assert sorted(positions) == list(range(total))
+
+
+def test_compact_browse_ids_above_row_budget_are_still_cached() -> None:
+    class LargeCatalog:
+        catalog_cache = CatalogCache(max_rows=30_000)
+        calls = 0
+
+        async def fetch_all(self, _statement):
+            self.calls += 1
+            return [{"id": index} for index in range(1, 40_002)]
+
+    database = LargeCatalog()
+    ids = asyncio.run(_browse_ids_async(database))
+    assert len(ids) == 40_001
+    assert ids.itemsize == 8
+    assert asyncio.run(_browse_ids_async(database)) is ids
+    assert database.calls == 1
+    assert database.catalog_cache.rows == 2_501
+
+
+def test_random_browse_cache_stays_bounded_and_seed_survives_eviction(catalog) -> None:
+    database = D1Database(LocalD1(catalog), catalog_cache=CatalogCache(max_rows=10))
+    first, _ = asyncio.run(search_songs_async(database, "", 4, seed=17))
+    for seed in range(18, 30):
+        asyncio.run(search_songs_async(database, "", 4, seed=seed))
+        assert database.catalog_cache.rows <= 10
+    repeated, _ = asyncio.run(search_songs_async(database, "", 4, seed=17))
+    assert [song.id for song in first] == [song.id for song in repeated]
 
 
 @pytest.mark.parametrize(
     ("offset", "limit"), [(0, 2), (1, 2), (2, 2), (3, 3), (0, 10), (4, 2), (6, 2)]
 )
-def test_browse_from_either_end_preserves_pages(catalog, offset, limit) -> None:
+def test_random_browse_preserves_pages(catalog, offset, limit) -> None:
     binding = LocalD1(catalog)
-    expected = [4, 2, 3, 1][offset : offset + limit]
-    results, total = asyncio.run(search_songs_async(D1Database(binding), "", limit, offset))
-    assert [song.id for song in results] == expected
+    expected = [1, 2, 3, 4]
+    expected = [expected[_permuted_browse_index(index, 4, 17)] for index in range(4)]
+    results, total = asyncio.run(search_songs_async(D1Database(binding), "", limit, offset, 17))
+    assert [song.id for song in results] == expected[offset : offset + limit]
     assert total == 4
     if offset >= total:
-        assert len(binding.calls) == 1  # No page query past the end of the catalog.
-    elif offset + min(limit, total - offset) == total and offset > 0:
-        assert "ss.song_id DESC" in binding.calls[-1]
+        assert len(binding.calls) == 1
 
 
-def test_reverse_browse_respects_disabled_songs_and_duplicate_titles(catalog) -> None:
-    # A stale search row must not change eligibility or ascending title/artist/ID order.
+def test_random_browse_respects_disabled_songs(catalog) -> None:
     catalog.execute("UPDATE songs SET enabled = 0 WHERE id = 1")
+    catalog.execute("UPDATE songs SET enabled = 0 WHERE id = 4")
     catalog.executescript(SNAPSHOT_REFRESH_SQL)
-    results, total = asyncio.run(search_songs_async(D1Database(LocalD1(catalog)), "", 2, 1))
-    assert total == 3
-    assert [song.id for song in results] == [2, 3]
+    results, total = asyncio.run(search_songs_async(D1Database(LocalD1(catalog)), "", 10))
+    assert total == 2
+    assert {song.id for song in results} == {2, 3}
+
+
+def test_ranked_search_reuses_fixed_candidates_across_pages(catalog) -> None:
+    binding = LocalD1(catalog)
+    database = D1Database(binding)
+    first, total = asyncio.run(search_songs_async(database, "same", 2, seed=17))
+    second, second_total = asyncio.run(search_songs_async(database, "same", 2, 2, seed=18))
+    assert [song.id for song in first + second] == [2, 3, 1]
+    assert total == second_total == 3
+    assert len(binding.calls) == 1  # Search ignores shuffle seed and shares its candidate pool.
+    assert "song_search_fts MATCH" in binding.calls[0]
 
 
 def test_round_pool_preserves_uniform_choices_and_filter_boundaries(catalog, monkeypatch) -> None:

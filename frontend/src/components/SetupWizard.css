@@ -1022,7 +1022,7 @@
 }
 
 .setup-preset-list {
-  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.72rem;
   border: 0;
 }
@@ -1730,4 +1730,230 @@
     height: 4rem;
     min-height: 4rem;
   }
+}
+
+/* Keep menus within the available shell; long selections stay on one rail. */
+.is-menu .setup-wizard {
+  padding: 0.2rem 0 0.4rem;
+}
+.is-menu .setup-wizard-header {
+  margin-bottom: clamp(0.4rem, 1.5dvh, 0.9rem);
+}
+.is-menu .setup-wizard-header h1 {
+  font-size: clamp(1.8rem, 6dvh, 3rem);
+}
+.is-menu .setup-preset-list button {
+  min-height: clamp(2.75rem, 7dvh, 3.5rem);
+  padding-block: 0.3rem;
+  grid-template-columns: 1.7rem minmax(0, 1fr) 0.75rem;
+  gap: 0.3rem;
+}
+.is-menu .setup-preset-list strong {
+  font-size: 0.88rem;
+}
+.is-menu .setup-step-meter {
+  margin-bottom: 0.65rem;
+}
+.is-menu .setup-artist-step,
+.is-menu .setup-option-step,
+.is-menu .setup-range-step {
+  min-height: min(13rem, 35dvh);
+}
+.is-menu .setup-inline-tokens {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.2rem;
+  scrollbar-width: thin;
+}
+.is-menu .setup-inline-token {
+  flex: 0 0 auto;
+  max-width: 14rem;
+  white-space: nowrap;
+}
+.is-menu .setup-inline-token > span {
+  white-space: nowrap;
+}
+.is-menu .setup-search-stack {
+  padding-bottom: min(8.7rem, 22dvh);
+}
+.is-menu .setup-search-results,
+.is-menu .setup-option-list {
+  max-height: min(8.7rem, 22dvh);
+}
+.is-menu .setup-step-actions {
+  display: flex;
+  gap: 0.65rem;
+  margin-top: 0.65rem;
+  padding-top: 0;
+}
+.is-menu .setup-step-actions .setup-continue-action {
+  width: auto;
+  min-height: 2.75rem;
+  flex: 1;
+}
+.is-menu .setup-range-readout {
+  margin-bottom: 0.75rem;
+}
+.is-menu .view-review .setup-review-count {
+  margin-bottom: 0.4rem;
+  font-size: 1.2rem;
+}
+.is-menu .view-review .setup-wizard-review dl > div,
+.is-menu .view-review .setup-wizard-review dl > div:last-child {
+  min-height: clamp(2.6rem, 7dvh, 3.9rem);
+  padding-block: 0.4rem;
+}
+.is-menu .view-review .setup-wizard-review dd {
+  font-size: clamp(0.9rem, 2.5dvh, 1.22rem);
+}
+.is-menu .view-review .setup-review-actions {
+  margin-top: 0.65rem;
+}
+.is-menu .view-review .setup-review-actions .setup-back-action {
+  width: 2.75rem;
+  min-width: 2.75rem;
+  height: 2.75rem;
+  min-height: 2.75rem;
+}
+.is-menu .view-review .setup-start-action {
+  min-height: 2.75rem;
+}
+@media (max-height: 540px) and (min-width: 520px) {
+  .is-menu .setup-wizard {
+    display: grid;
+    grid-template-columns: minmax(0, 0.65fr) minmax(0, 1fr);
+    gap: 0.75rem 1.5rem;
+    align-items: center;
+  }
+  .is-menu .setup-wizard-header {
+    margin: 0;
+  }
+  .is-menu .setup-preset-list button {
+    min-height: 2.75rem;
+  }
+  .is-menu .setup-preset-list strong {
+    font-size: 0.75rem;
+  }
+  .is-menu .setup-wizard.view-review {
+    min-height: 0;
+  }
+  .is-menu .view-review .setup-wizard-review dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .is-menu .view-review .setup-wizard-review dl > div {
+    grid-template-columns: minmax(0, 1fr);
+    grid-column: auto;
+    gap: 0.2rem;
+    min-height: 2.75rem;
+  }
+}
+
+/* Search menus page through results instead of introducing vertical scroll. */
+.is-menu .setup-result-surface {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  z-index: 20;
+  background: #090a09;
+  border: 1px solid var(--setup-rule);
+}
+.is-menu .setup-result-surface .setup-search-results,
+.is-menu .setup-result-surface .setup-option-list {
+  position: static;
+  max-height: none;
+  overflow: visible;
+  border: 0;
+  box-shadow: none;
+}
+.is-menu .setup-result-surface .setup-option-list > label,
+.is-menu .setup-result-surface .setup-search-results button {
+  height: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.55rem;
+}
+.is-menu .setup-result-surface strong,
+.is-menu .setup-result-surface small,
+.is-menu .setup-result-surface .setup-option-list span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.setup-result-pages {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.2rem;
+  font-size: 0.7rem;
+  color: var(--setup-faded);
+}
+.setup-result-pages button {
+  width: 2.75rem;
+  min-height: 2.75rem;
+  color: var(--setup-ink);
+  background: transparent;
+  border: 1px solid var(--setup-rule);
+  cursor: pointer;
+}
+.setup-result-pages button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.is-menu .setup-search-stack {
+  padding-bottom: 11.8rem;
+}
+@media (max-height: 699px) {
+  .is-menu .setup-search-stack {
+    padding-bottom: 9rem;
+  }
+}
+@media (max-height: 449px) {
+  .is-menu .setup-search-stack {
+    padding-bottom: 6.25rem;
+  }
+}
+
+/* Keep the original single-column menu; distribute its rows within the viewport. */
+.is-menu .setup-wizard.view-choose {
+  display: flex;
+  flex: 0 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0;
+}
+.is-menu .view-choose .setup-wizard-chooser {
+  display: grid;
+  flex: none;
+  height: min(36rem, calc(100dvh - 13rem));
+  min-height: 0;
+  max-height: 36rem;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 9fr);
+  gap: clamp(0.2rem, 0.7dvh, 0.5rem);
+}
+.is-menu .view-choose .setup-preset-list {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: repeat(9, minmax(0, 1fr));
+  min-height: 0;
+  gap: clamp(0.2rem, 0.7dvh, 0.5rem);
+}
+.is-menu .view-choose .setup-custom-choice,
+.is-menu .view-choose .setup-preset-list button {
+  min-height: 0;
+  height: 100%;
+  margin: 0;
+  padding: 0.15rem 0.8rem;
+  grid-template-columns: clamp(1.1rem, 3.4dvh, 1.7rem) minmax(0, 1fr) 0.8rem;
+  gap: 0.5rem;
+  box-shadow: 0.15rem 0.15rem 0 var(--setup-accent);
+}
+.is-menu .view-choose .setup-custom-choice > span,
+.is-menu .view-choose .setup-preset-list button > span {
+  width: clamp(1.1rem, 3.4dvh, 1.7rem);
+  font-size: clamp(0.45rem, 1.1dvh, 0.56rem);
+}
+.is-menu .view-choose .setup-custom-choice strong,
+.is-menu .view-choose .setup-preset-list strong {
+  font-size: clamp(0.75rem, 2.1dvh, 1rem);
 }

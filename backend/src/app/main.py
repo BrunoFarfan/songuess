@@ -73,8 +73,9 @@ async def songs_search(
     q: str = Query(default="", max_length=120),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=40, ge=1, le=100),
+    seed: Annotated[int, Query(ge=0, le=4_294_967_295)] = 0,
 ) -> SongSearchPage:
-    items, total = await search_songs_async(database, q, limit=limit, offset=offset)
+    items, total = await search_songs_async(database, q, limit=limit, offset=offset, seed=seed)
     return SongSearchPage(
         items=items,
         offset=offset,

@@ -90,7 +90,7 @@ def test_song_search_matches_partial_album_and_year(tmp_path: Path) -> None:
         album_results = search_songs(connection, "rainb")
         year_results = search_songs(connection, "1978")
 
-    assert {result.id for result in album_results[:2]} == {1, 4}
+    assert {1, 4} <= {result.id for result in album_results}
     assert year_results[0].id == 3
     assert album_results[0].album == "In Rainbows"
     assert year_results[0].release_year == 1978
@@ -105,21 +105,46 @@ def test_song_search_tolerates_fuzzy_typo(tmp_path: Path) -> None:
     assert results[0].artist == "Radiohead"
 
 
-def test_song_search_exact_normalized_title_outranks_loose_fuzzy_match(tmp_path: Path) -> None:
+def test_song_search_exact_titles_rank_above_fuzzy_matches(tmp_path: Path) -> None:
     database = _catalog(tmp_path)
 
     with connect(database) as connection:
         _insert_search_regression_songs(connection)
+        _insert_song(connection, 8, "Mr. Briteside", "Cover Artist", "Covers", 2020)
+        connection.commit()
         plain = search_songs(connection, "mr brightside")
         punctuated = search_songs(connection, "MR. BRIGHTSIDE")
 
-    assert plain[0].id == 5
-    assert punctuated[0].id == 5
-    assert plain[0].title == "Mr. Brightside"
-    assert next(result.id for result in plain if result.title == "Might") > 0
+    assert [result.id for result in plain[:2]] == [5, 8]
+    assert [result.id for result in punctuated[:2]] == [5, 8]
 
 
-def test_song_search_exact_title_outranks_prefix_even_when_prefix_is_more_popular(
+def test_song_search_ranks_compound_title_artist_and_album_queries(tmp_path: Path) -> None:
+    database = _catalog(tmp_path)
+    with connect(database) as connection:
+        _insert_song(connection, 40, "Go Flex", "Post Malone", "Stoney", 2016)
+        _insert_song(connection, 41, "16 Mirrors", "Alex G", "Trick", 2012)
+        _insert_song(connection, 42, "Flex", "Other Artist", "Postcards", 2020)
+        _insert_song(connection, 43, "Go", "Post Malone", "Other Album", 2020)
+        _insert_song(connection, 44, "Break", "alex_g_offline", "Unreleased", 2020)
+        _insert_song(connection, 45, "Runner", "Alex G", "God Save the Animals", 2022)
+        connection.commit()
+        compound = search_songs(connection, "go flex post")
+        fuzzy = search_songs(connection, "go flex post malonee")
+        album = search_songs(connection, "go flex stoney")
+        missing_term = search_songs(connection, "go flex radiohead")
+        exact_title = search_songs(connection, "go flex")
+        exact_artist = search_songs(connection, "post malone")
+
+    assert compound[0].id == 40
+    assert fuzzy[0].id == 40
+    assert album[0].id == 40
+    assert missing_term  # Weak candidates remain available without a similarity cutoff.
+    assert exact_title[0].id == 40
+    assert [result.id for result in exact_artist[:2]] == [43, 40]
+
+
+def test_song_search_similarity_order_ignores_popularity(
     tmp_path: Path,
 ) -> None:
     database = _catalog(tmp_path)
@@ -135,7 +160,7 @@ def test_song_search_exact_title_outranks_prefix_even_when_prefix_is_more_popula
     assert [result.id for result in results[:2]] == [30, 31]
 
 
-def test_song_search_equally_exact_titles_use_popularity_as_tiebreaker(
+def test_song_search_equal_normalized_titles_use_original_popularity_tiebreaker(
     tmp_path: Path,
 ) -> None:
     database = _catalog(tmp_path)
@@ -158,25 +183,24 @@ def test_song_search_equally_exact_titles_use_popularity_as_tiebreaker(
     assert [result.id for result in results[:2]] == [32, 33]
 
 
-def test_song_search_exact_artist_phrase_outranks_unrelated_fuzzy_titles(tmp_path: Path) -> None:
+def test_song_search_artist_phrase_keeps_matching_titles_discoverable(tmp_path: Path) -> None:
     database = _catalog(tmp_path)
 
     with connect(database) as connection:
         _insert_search_regression_songs(connection)
         results = search_songs(connection, "the killers")
 
-    assert {result.id for result in results[:2]} == {5, 7}
-    assert all(result.artist == "The Killers" for result in results[:2])
+    assert {5, 7} <= {result.id for result in results}
 
 
-def test_song_search_title_typo_still_prefers_the_intended_song(tmp_path: Path) -> None:
+def test_song_search_title_typo_still_finds_the_intended_song(tmp_path: Path) -> None:
     database = _catalog(tmp_path)
 
     with connect(database) as connection:
         _insert_search_regression_songs(connection)
         results = search_songs(connection, "mr briteside")
 
-    assert results[0].id == 5
+    assert 5 in {result.id for result in results}
 
 
 def test_song_search_ranks_single_character_query(tmp_path: Path) -> None:
@@ -258,21 +282,23 @@ def test_song_search_pages_are_stable_continuous_and_do_not_overlap(tmp_path: Pa
     assert len(paged_ids) == len(set(paged_ids))
 
 
-def test_empty_song_search_is_alphabetical_and_pages_without_overlap(tmp_path: Path) -> None:
+def test_empty_song_search_is_seeded_random_and_pages_without_overlap(tmp_path: Path) -> None:
     database = _catalog(tmp_path)
     with connect(database) as connection:
         _insert_song(connection, 10, "Alone", "Zulu", "First", 2000)
         _insert_song(connection, 11, "Álone", "Alpha", "Second", 2001)
         connection.commit()
+        expected = search_songs(connection, "", limit=6, seed=17)
+        first_page = search_songs(connection, "", limit=3, seed=17)
+        second_page = search_songs(connection, "", limit=3, offset=3, seed=17)
+        other_seed = search_songs(connection, "", limit=6, seed=18)
 
-        first_page = search_songs(connection, "", limit=3)
-        second_page = search_songs(connection, "", limit=3, offset=3)
-
-    first_ids = [result.id for result in first_page]
-    second_ids = [result.id for result in second_page]
-    assert first_ids == [1, 11, 10]
-    assert second_ids == [2, 3, 4]
-    assert not set(first_ids) & set(second_ids)
+    ids = [result.id for result in expected]
+    assert [result.id for result in first_page + second_page] == ids
+    assert len(ids) == len(set(ids)) == 6
+    assert set(ids) == {1, 2, 3, 4, 10, 11}
+    assert ids != [1, 11, 10, 2, 3, 4]
+    assert [result.id for result in other_seed] != ids
 
 
 def test_song_search_api_returns_page_metadata_and_declares_bounds(tmp_path: Path) -> None:
@@ -321,9 +347,12 @@ def test_song_search_api_returns_page_metadata_and_declares_bounds(tmp_path: Pat
     }
     assert parameters["offset"]["minimum"] == 0
     assert parameters["offset"]["default"] == 0
+    assert parameters["seed"]["minimum"] == 0
+    assert parameters["seed"]["maximum"] == 4_294_967_295
+    assert parameters["seed"]["default"] == 0
 
 
-def test_song_search_api_defaults_to_empty_alphabetical_query(tmp_path: Path) -> None:
+def test_song_search_api_defaults_to_empty_random_query(tmp_path: Path) -> None:
     database = _catalog(tmp_path)
     with connect(database) as connection:
         response = asyncio.run(songs_search(SQLiteDatabase(connection), q="", offset=0, limit=2))
@@ -332,7 +361,8 @@ def test_song_search_api_defaults_to_empty_alphabetical_query(tmp_path: Path) ->
         for parameter in app.openapi()["paths"]["/api/songs/search"]["get"]["parameters"]
     }
 
-    assert [item.id for item in response.items] == [1, 2]
+    assert len(response.items) == 2
+    assert len({item.id for item in response.items}) == 2
     assert response.total == 4
     assert response.has_more is True
     assert parameters["q"]["default"] == ""
@@ -357,3 +387,44 @@ def test_empty_song_search_reports_full_catalog_total_beyond_candidate_cap(tmp_p
     assert response.total == 129
     assert len(response.items) == 9
     assert response.has_more is False
+
+
+def test_song_search_keeps_weak_matches_but_ranks_similarity_first(tmp_path: Path) -> None:
+    database = _catalog(tmp_path)
+    with connect(database) as connection:
+        _insert_search_regression_songs(connection)
+        results = search_songs(connection, "mr brightside")
+    assert results[0].id == 5
+    assert 6 in {result.id for result in results}  # Might shares a trigram, below the old cutoff.
+
+
+def test_song_search_equal_artist_scores_use_alphabetical_title_ties(tmp_path: Path) -> None:
+    database = _catalog(tmp_path)
+    with connect(database) as connection:
+        _insert_song(connection, 40, "Zulu", "Same Artist", "Album", 2020)
+        _insert_song(connection, 41, "Alpha", "Same Artist", "Album", 2020)
+        connection.commit()
+        results = search_songs(connection, "same artist")
+    assert [song.id for song in results[:2]] == [41, 40]
+
+
+def test_song_search_combined_title_artist_terms_rank_first(tmp_path: Path) -> None:
+    database = _catalog(tmp_path)
+    with connect(database) as connection:
+        _insert_song(connection, 40, "Stronger", "Kanye West", "Graduation", 2007)
+        _insert_song(connection, 41, "Stronger Than Me", "Amy Winehouse", "Frank", 2003)
+        connection.commit()
+        for query in ("stronger kanye west", "kanye west stronger"):
+            results = search_songs(connection, query)
+            assert results[0].id == 40
+            assert 41 in {song.id for song in results}  # Keep weaker matches without a cutoff.
+
+
+def test_song_search_original_term_priority_handles_featured_title(tmp_path: Path) -> None:
+    database = _catalog(tmp_path)
+    with connect(database) as connection:
+        _insert_song(connection, 40, "Ghost Town (feat. PARTYNEXTDOOR)", "Kanye West", "ye", 2018)
+        _insert_song(connection, 41, "Cotton Candy", "Lil Wayne & 2 Chainz", "Tha Carter VI", 2025)
+        connection.commit()
+        results = search_songs(connection, "ghost town kanye")
+    assert results[0].id == 40
