@@ -31,7 +31,7 @@ html {
 }
 
 body {
-  min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
   overflow-x: clip;
   background:
@@ -2385,5 +2385,269 @@ button:disabled {
   .personal-stats {
     margin-top: 1.4rem;
     padding-bottom: 1rem;
+  }
+}
+
+/* Menus share the usable viewport; results keep their own layout. */
+main:has(.game-shell.is-menu) {
+  height: 100dvh;
+  min-height: 0;
+  padding-block: max(0.65rem, env(safe-area-inset-top)) max(0.65rem, env(safe-area-inset-bottom));
+  align-items: stretch;
+}
+.game-shell.is-menu {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 100%;
+  min-height: 0;
+}
+.is-menu > .brand-lockup {
+  flex: 0 0 auto;
+  margin-bottom: clamp(0.25rem, 1.5dvh, 0.8rem);
+}
+.menu-setup-flow:not([hidden]) {
+  display: flex;
+  flex: 0 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+
+/* Keep the instrument, search deck and submit action in one screen. */
+main:has(.game-shell.is-playing) {
+  min-height: 100dvh;
+  padding-block: max(0.5rem, env(safe-area-inset-top)) max(0.5rem, env(safe-area-inset-bottom));
+  align-items: start;
+}
+.is-playing .play-stack {
+  padding-bottom: 0;
+}
+.is-playing .round-play-area {
+  min-height: calc(
+    var(--round-viewport-height, 100dvh) - max(0.5rem, env(safe-area-inset-top)) -
+      max(0.5rem, env(safe-area-inset-bottom))
+  );
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(0.5rem, 2dvh, 1rem);
+}
+.is-playing .listening-card {
+  padding: 0;
+  margin: 0;
+}
+.is-playing .clue-status {
+  min-height: 2.75rem;
+  margin: 0;
+  align-content: center;
+}
+.is-playing .round-answer-surface {
+  width: 100%;
+}
+.is-playing .guess-card {
+  padding: 0;
+}
+.is-playing .guess-card .search-field input {
+  min-height: 2.75rem;
+  height: 2.75rem;
+  padding-block: 0.5rem;
+  font-size: 1rem;
+}
+.is-playing .search-clear {
+  top: 1.375rem;
+}
+.is-playing .guess-card .primary-action {
+  min-height: 2.75rem;
+  height: 2.75rem;
+  margin-top: 0.4rem;
+}
+.is-playing .album-guess-browser {
+  --album-size: min(
+    35cqi,
+    10rem,
+    max(2.5rem, calc((var(--round-viewport-height, 100dvh) - 17rem) * 0.28))
+  );
+  margin-top: 1rem;
+  padding: 1rem 0 0.25rem;
+}
+.is-playing .album-guess-stage {
+  height: calc(var(--album-size) + 1.15rem);
+}
+.is-playing .album-guess-copy {
+  min-height: 3.65rem;
+  height: 3.65rem;
+  margin-top: 0;
+  gap: 0.08rem;
+  align-content: start;
+}
+.is-playing .album-guess-copy strong {
+  font-size: 1rem;
+}
+.is-playing .album-guess-copy small {
+  font-size: 0.65rem;
+  margin-top: 0;
+}
+.is-playing .album-guess-browser.is-loading,
+.is-playing .album-guess-empty {
+  min-height: calc(var(--album-size) + 6rem);
+}
+.is-playing .previous-guesses {
+  margin-top: 1rem;
+}
+.vinyl-ring-locked {
+  fill: none;
+  stroke-width: 4;
+  stroke: #3d3e3b;
+}
+.game-drawer-trigger {
+  position: fixed;
+  z-index: 66;
+  left: var(--safe-inline-start);
+  top: max(0.5rem, env(safe-area-inset-top));
+}
+.game-drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: min(24rem, 90vw);
+  height: 100dvh;
+  max-height: 100dvh;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  overflow-y: auto;
+  box-shadow: 1rem 0 4rem #0008;
+}
+.game-drawer[open] {
+  animation: drawer-enter 180ms ease-out;
+}
+.game-drawer::backdrop {
+  background: #0009;
+}
+.game-drawer-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: max(1.25rem, env(safe-area-inset-top)) 1.25rem max(1.25rem, env(safe-area-inset-bottom));
+}
+.drawer-close {
+  align-self: end;
+  font-size: 1.5rem;
+}
+.drawer-filter-summary {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+.game-drawer .volume-control {
+  width: 100%;
+  margin: 0 0 1rem;
+}
+.game-drawer .personal-stats {
+  padding: 0;
+  margin: 0;
+}
+@keyframes drawer-enter {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-drawer[open] {
+    animation: none;
+  }
+}
+@media (max-height: 500px) and (min-aspect-ratio: 1/1) {
+  .is-playing {
+    width: min(100%, 60rem);
+  }
+  .is-playing .round-play-area {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1rem;
+    align-items: center;
+    align-content: center;
+  }
+  .is-playing .album-guess-browser {
+    --album-size: min(24cqi, 20dvh);
+  }
+}
+
+/* Error feedback fits the same listening area instead of adding page height. */
+.is-playing .listening-card:has(.inline-error) .vinyl-control-deck {
+  --deck-vinyl-size: min(
+    82cqi,
+    22rem,
+    max(4rem, calc((var(--round-viewport-height, 100dvh) - 20rem) * 0.6))
+  );
+}
+.is-playing .listening-card .inline-error {
+  margin-top: 0.3rem;
+  font-size: 0.65rem;
+}
+
+.desktop-game-header {
+  display: none;
+}
+@media (min-width: 64rem) {
+  .is-round .game-drawer-trigger {
+    display: none;
+  }
+  .desktop-game-header {
+    display: block;
+    position: fixed;
+    z-index: 65;
+    top: max(0.75rem, env(safe-area-inset-top));
+    left: 50%;
+    width: min(calc(100% - 3rem), 64rem);
+    transform: translateX(-50%);
+  }
+  .desktop-game-header .brand-lockup {
+    margin-bottom: 0.4rem;
+  }
+  .desktop-filter-summary,
+  .desktop-room-progress {
+    margin: 0;
+    color: var(--muted);
+    max-width: calc(100% - 12rem);
+    text-align: left;
+    font-size: 0.75rem;
+    line-height: 1.6;
+  }
+  .desktop-filter-summary {
+    text-wrap: balance;
+  }
+  .desktop-room-progress {
+    margin-top: 0.2rem;
+    font-size: 0.7rem;
+  }
+  .desktop-game-header .utility-popover {
+    top: calc(100% + 0.5rem);
+  }
+  .desktop-game-header .volume-control {
+    width: 100%;
+    margin: 0;
+  }
+  .desktop-statistics-panel {
+    width: min(32rem, 100%);
+    max-height: calc(100dvh - 7rem);
+    overflow-y: auto;
+  }
+  .desktop-statistics-panel .personal-stats {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  main:has(.game-shell.is-playing) {
+    padding-top: calc(6rem + max(0.5rem, env(safe-area-inset-top)));
+  }
+  .is-playing {
+    --round-viewport-height: calc(100dvh - 6rem);
   }
 }

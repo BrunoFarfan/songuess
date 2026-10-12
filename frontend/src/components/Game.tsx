@@ -176,9 +176,14 @@ type RevealedSong = SearchResult & {
 const searchPageCache = new PrefetchCache<SearchResponse>();
 const revealCache = new PrefetchCache<RevealedSong>(4);
 
-async function requestSearchPage(offset: number, query: string): Promise<SearchResponse> {
+async function requestSearchPage(
+  offset: number,
+  query: string,
+  seed: number,
+): Promise<SearchResponse> {
   const params = new URLSearchParams({ offset: String(offset), limit: String(SEARCH_PAGE_SIZE) });
   if (query) params.set("q", query);
+  else params.set("seed", String(seed));
   const url = `/api/songs/search?${params}`;
   return searchPageCache.get(url, async () => {
     const response = await fetch(url);
@@ -228,7 +233,7 @@ export default function Game() {
     null,
   );
   const [isRevealLoading, setIsRevealLoading] = useState(false);
-  const [isRevealArmed, setIsRevealArmed] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [volume, setVolume] = useState(DEFAULT_VOLUME);
   const [audioError, setAudioError] = useState("");
@@ -249,8 +254,10 @@ export default function Game() {
   const [isTutorialPending, setIsTutorialPending] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
-  const revealButtonRef = useRef<HTMLButtonElement>(null);
-  const utilityControlsRef = useRef<HTMLElement>(null);
+  const drawerRef = useRef<HTMLDialogElement>(null);
+  const desktopUtilityRef = useRef<HTMLElement>(null);
+  const drawerTriggerRef = useRef<HTMLButtonElement>(null);
+  const browseSeedRef = useRef(0);
   const utilityTriggerRef = useRef<HTMLButtonElement | null>(null);
   const roundGenerationRef = useRef(0);
   const playlistGenerationRef = useRef(0);
@@ -401,21 +408,38 @@ export default function Game() {
   );
 
   useEffect(() => {
-    if (!isRevealArmed) return;
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsRevealArmed(false);
+    const desktop = window.matchMedia("(min-width: 64rem)");
+    const handleResize = () => {
+      setIsDrawerOpen(false);
+      setOpenUtilityPanel(null);
     };
-    const handleOutsidePress = (event: PointerEvent) => {
-      if (revealButtonRef.current?.contains(event.target as Node)) return;
-      setIsRevealArmed(false);
+    desktop.addEventListener("change", handleResize);
+    return () => desktop.removeEventListener("change", handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (!openUtilityPanel || isDrawerOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (!desktopUtilityRef.current?.contains(event.target as Node)) setOpenUtilityPanel(null);
     };
-    window.addEventListener("keydown", handleEscape);
-    window.addEventListener("pointerdown", handleOutsidePress);
-    return () => {
-      window.removeEventListener("keydown", handleEscape);
-      window.removeEventListener("pointerdown", handleOutsidePress);
-    };
-  }, [isRevealArmed]);
+    window.addEventListener("pointerdown", dismiss);
+    return () => window.removeEventListener("pointerdown", dismiss);
+  }, [openUtilityPanel, isDrawerOpen]);
+
+  useEffect(() => {
+    const drawer = drawerRef.current;
+    if (!drawer) return;
+    if (isDrawerOpen) drawer.showModal();
+    else if (drawer.open) {
+      drawer.close();
+      drawerTriggerRef.current?.focus();
+    }
+  }, [isDrawerOpen]);
+
+  useEffect(() => {
+    setIsDrawerOpen(false);
+    setOpenUtilityPanel(null);
+  }, [phase, room.mode]);
 
   useEffect(() => {
     if (!openUtilityPanel) return;
@@ -427,16 +451,6 @@ export default function Game() {
     };
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [openUtilityPanel]);
-
-  useEffect(() => {
-    if (openUtilityPanel !== "volume") return;
-    const handleOutsidePress = (event: PointerEvent) => {
-      if (utilityControlsRef.current?.contains(event.target as Node)) return;
-      closeUtilityPanel({ restoreFocus: false });
-    };
-    window.addEventListener("pointerdown", handleOutsidePress);
-    return () => window.removeEventListener("pointerdown", handleOutsidePress);
   }, [openUtilityPanel]);
 
   useEffect(() => {
@@ -519,7 +533,7 @@ export default function Game() {
     const handleEnded = () => setIsAudioPlaying(false);
     const handleError = () => {
       setIsAudioPlaying(false);
-      setAudioError("This preview could not be played. You can reveal it or try another song.");
+      setAudioError("This preview could not be played. Try the next clue or another song.");
     };
     const handleLoaded = () => setAudioError("");
 
@@ -651,7 +665,7 @@ export default function Game() {
       pendingSearchPagesRef.current.add(pageOffset);
       setIsLoadingMoreResults(true);
       try {
-        const payload = await requestSearchPage(pageOffset, normalizedQuery);
+        const payload = await requestSearchPage(pageOffset, normalizedQuery, browseSeedRef.current);
         if (generation !== searchGenerationRef.current) return null;
 
         loadedSearchPagesRef.current.add(pageOffset);
@@ -708,12 +722,17 @@ export default function Game() {
       return;
     }
 
+    if (!normalizedQuery) {
+      // A new empty-search session gets a new order; its pages share this seed.
+      const seed = Math.floor(Math.random() * 0x100000000);
+      browseSeedRef.current = seed === browseSeedRef.current ? (seed + 1) >>> 0 : seed;
+    }
     setIsSearching(true);
     let cancelled = false;
     const timeout = window.setTimeout(
       async () => {
         try {
-          const payload = await requestSearchPage(0, normalizedQuery);
+          const payload = await requestSearchPage(0, normalizedQuery, browseSeedRef.current);
           if (generation !== searchGenerationRef.current) return;
           loadedSearchPagesRef.current.add(0);
           searchTotalCountRef.current = payload.total;
@@ -792,7 +811,6 @@ export default function Game() {
     setSearchResultsQuery("");
     setSearchTotalCount(0);
     setExcludedSearchIndexes([]);
-    setIsRevealArmed(false);
   }
 
   function invalidatePrefetchedRounds() {
@@ -975,7 +993,6 @@ export default function Game() {
 
   async function finishRound(nextOutcome: RoundOutcome) {
     if (isRoomPlaying) {
-      setIsRevealArmed(false);
       room.action("give_up");
       return;
     }
@@ -992,7 +1009,6 @@ export default function Game() {
         completedAt: new Date().toISOString(),
       });
     }
-    setIsRevealArmed(false);
     stopAudio(true);
     setRevealedSong(preparedReveal?.id === currentSongId ? preparedReveal.song : null);
     setOutcome(nextOutcome);
@@ -1056,12 +1072,10 @@ export default function Game() {
 
   function advanceAttempt({ resumePlayback = false, preserveSearch = false } = {}) {
     if (isRoomPlaying) {
-      setIsRevealArmed(false);
       roomPlaybackRef.current = resumePlayback ? "clue" : null;
       void room.action("skip");
       return;
     }
-    setIsRevealArmed(false);
     if (!preserveSearch) {
       setSelectedGuess(null);
       setQuery("");
@@ -1167,93 +1181,203 @@ export default function Game() {
     ++roundGenerationRef.current;
     invalidatePrefetchedRounds();
     stopAudio(true);
-    setIsRevealArmed(false);
     setDraftFilters(activeFilters);
     setPhase("setup");
     setAppError("");
     setOpenUtilityPanel(null);
   }
 
-  function toggleUtilityPanel(panel: "volume" | "stats", trigger: HTMLButtonElement) {
-    utilityTriggerRef.current = trigger;
-    setOpenUtilityPanel((current) => (current === panel ? null : panel));
-  }
+  const isRoundScreen =
+    (phase === "playing" || phase === "revealed") &&
+    (room.mode === "solo" || room.mode === "playing");
 
-  function closeUtilityPanel({ restoreFocus = true } = {}) {
-    setOpenUtilityPanel(null);
-    if (restoreFocus) window.requestAnimationFrame(() => utilityTriggerRef.current?.focus());
-  }
+  const filterSummary = isRoomPlaying
+    ? [
+        room.summary?.filters.genres.join(" · ") || "All genres",
+        room.summary?.filters.countries.map(countryDisplay).join(" · ") || "All origins",
+      ].join(" — ")
+    : [
+        activeFilters.artist?.name ?? "All artists",
+        activeFilters.genres.join(" · ") || "All genres",
+        activeFilters.countries.map(countryDisplay).join(" · ") || "All origins",
+      ].join(" — ");
 
   return (
-    <section className="game-shell" aria-live="polite">
-      <header className="brand-lockup has-utility-controls">
-        <a className="brand" href="/" aria-label="Songuess home">
-          Songuess<span aria-hidden="true">.</span>
-        </a>
-        <nav ref={utilityControlsRef} className="utility-controls" aria-label="Game options">
-          {(phase === "playing" || phase === "revealed") && (
-            <>
-              <div className="utility-control">
+    <section
+      className={`game-shell${isRoundScreen ? " is-round" : " is-menu"}${isRoundScreen && phase === "playing" ? " is-playing" : ""}`}
+      aria-live="polite"
+    >
+      {isRoundScreen && (
+        <>
+          <header className="desktop-game-header" ref={desktopUtilityRef}>
+            <div className="brand-lockup has-utility-controls">
+              <a className="brand" href="/" aria-label="Songuess home">
+                Songuess<span aria-hidden="true">.</span>
+              </a>
+              <nav className="utility-controls" aria-label="Game options">
                 <button
                   className="utility-icon-button"
                   type="button"
                   aria-label="Audio settings"
                   aria-expanded={openUtilityPanel === "volume"}
-                  aria-controls="volume-panel"
-                  onClick={(event) => toggleUtilityPanel("volume", event.currentTarget)}
+                  aria-controls="desktop-volume-panel"
+                  onClick={(event) => {
+                    utilityTriggerRef.current = event.currentTarget;
+                    setOpenUtilityPanel((panel) => (panel === "volume" ? null : "volume"));
+                  }}
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6" />
                   </svg>
                 </button>
-                {openUtilityPanel === "volume" && (
-                  <div
-                    className="utility-popover volume-popover"
-                    id="volume-panel"
-                    role="dialog"
-                    aria-label="Audio settings"
-                  >
-                    <span className="utility-popover-label">Volume</span>
-                    <VolumeControl volume={volume} onChange={changeVolume} />
-                  </div>
-                )}
-              </div>
-              <button
-                className="utility-icon-button"
-                type="button"
-                aria-label="View personal statistics"
-                aria-expanded={openUtilityPanel === "stats"}
-                aria-controls="statistics-panel"
-                onClick={(event) => toggleUtilityPanel("stats", event.currentTarget)}
+                <button
+                  className="utility-icon-button"
+                  type="button"
+                  aria-label="View personal statistics"
+                  aria-expanded={openUtilityPanel === "stats"}
+                  aria-controls="desktop-statistics-panel"
+                  onClick={(event) => {
+                    utilityTriggerRef.current = event.currentTarget;
+                    setOpenUtilityPanel((panel) => (panel === "stats" ? null : "stats"));
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 19V5M4 19h16M7 15l3-4 3 2 4-6" />
+                    <path d="m15 7 2-.25.25 2" />
+                  </svg>
+                </button>
+                <button
+                  className="utility-icon-button"
+                  type="button"
+                  aria-label="How to play"
+                  aria-haspopup="dialog"
+                  onClick={(event) => {
+                    utilityTriggerRef.current = event.currentTarget;
+                    setOpenUtilityPanel(null);
+                    setIsTutorialOpen(true);
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="12" r="8" />
+                    <path d="M12 11v5M12 8h.01" />
+                  </svg>
+                </button>
+              </nav>
+            </div>
+            <p className="desktop-filter-summary">{filterSummary}</p>
+            {isRoomPlaying && (
+              <p className="desktop-room-progress">
+                Song {room.result?.position ?? room.state?.current_round?.position} of{" "}
+                {room.summary?.song_count ?? "?"} · {room.state?.total_points ?? 0} points
+              </p>
+            )}
+            {!isDrawerOpen && openUtilityPanel === "volume" && (
+              <div
+                className="utility-popover"
+                id="desktop-volume-panel"
+                role="dialog"
+                aria-label="Audio settings"
               >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 19V5M4 19h16M7 15l3-4 3 2 4-6" />
-                  <path d="m15 7 2-.25.25 2" />
-                </svg>
+                <span className="utility-popover-label">Volume</span>
+                <VolumeControl
+                  id="desktop-playback-volume"
+                  volume={volume}
+                  onChange={changeVolume}
+                />
+              </div>
+            )}
+            {!isDrawerOpen && openUtilityPanel === "stats" && (
+              <div
+                className="utility-popover desktop-statistics-panel"
+                id="desktop-statistics-panel"
+                role="dialog"
+                aria-label="Personal statistics"
+              >
+                <PersonalStatistics history={roundHistory} stats={personalStats} />
+              </div>
+            )}
+          </header>
+          <button
+            ref={drawerTriggerRef}
+            className="utility-icon-button game-drawer-trigger"
+            type="button"
+            aria-label="Open game menu"
+            aria-haspopup="dialog"
+            aria-expanded={isDrawerOpen}
+            aria-controls="game-drawer"
+            onClick={() => setIsDrawerOpen(true)}
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <dialog
+            ref={drawerRef}
+            id="game-drawer"
+            className="game-drawer"
+            aria-label="Game menu"
+            onCancel={() => setIsDrawerOpen(false)}
+            onClick={(event) => {
+              if (event.target === event.currentTarget) setIsDrawerOpen(false);
+            }}
+          >
+            <div className="game-drawer-content">
+              <button
+                className="utility-close-button drawer-close"
+                type="button"
+                aria-label="Close game menu"
+                onClick={() => setIsDrawerOpen(false)}
+              >
+                ×
               </button>
-            </>
-          )}
-          {(phase === "playing" || phase === "revealed") && (
-            <button
-              className="utility-icon-button tutorial-info-button"
-              type="button"
-              aria-label="How to play"
-              aria-expanded={isTutorialOpen}
-              aria-haspopup="dialog"
-              onClick={(event) => {
-                utilityTriggerRef.current = event.currentTarget;
-                setOpenUtilityPanel(null);
-                setIsTutorialOpen(true);
-              }}
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="12" cy="12" r="8" />
-                <path d="M12 11v5M12 8h.01" />
-              </svg>
-            </button>
-          )}
-        </nav>
-      </header>
+              <a className="brand" href="/">
+                Songuess<span aria-hidden="true">.</span>
+              </a>
+              <p className="drawer-filter-summary">{filterSummary}</p>
+              {isRoomPlaying && (
+                <p>
+                  Song {room.result?.position ?? room.state?.current_round?.position} of{" "}
+                  {room.summary?.song_count ?? "?"} · {room.state?.total_points ?? 0} points
+                </p>
+              )}
+              <span className="eyebrow">Audio settings</span>
+              <VolumeControl volume={volume} onChange={changeVolume} />
+              <button
+                className="secondary-action"
+                type="button"
+                aria-expanded={openUtilityPanel === "stats"}
+                onClick={() => setOpenUtilityPanel((panel) => (panel === "stats" ? null : "stats"))}
+              >
+                Your statistics
+              </button>
+              {isDrawerOpen && openUtilityPanel === "stats" && (
+                <PersonalStatistics history={roundHistory} stats={personalStats} />
+              )}
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={() => {
+                  setIsDrawerOpen(false);
+                  utilityTriggerRef.current = drawerTriggerRef.current;
+                  setIsTutorialOpen(true);
+                }}
+              >
+                How to play
+              </button>
+              <button className="secondary-action" type="button" onClick={changeFilters}>
+                {isRoomPlaying ? "Back to room" : "Change mix"}
+              </button>
+            </div>
+          </dialog>
+        </>
+      )}
+      {!isRoundScreen && (
+        <header className="brand-lockup">
+          <a className="brand" href="/" aria-label="Songuess home">
+            Songuess<span aria-hidden="true">.</span>
+          </a>
+        </header>
+      )}
 
       {hasCheckedTutorial && isTutorialOpen && (phase === "playing" || phase === "revealed") && (
         <Tutorial
@@ -1287,7 +1411,7 @@ export default function Game() {
         <ChallengeRoom key={room.code} room={room} />
       ) : phase === "setup" || phase === "loading" ? (
         <>
-          <div hidden={room.mode === "details"}>
+          <div className="menu-setup-flow" hidden={room.mode === "details"}>
             <SetupNavigation
               label={room.mode === "solo" ? "Solo · Pick your mix" : "Multiplayer · Pick your mix"}
               onBack={room.mode === "solo" ? room.home : room.multiplayer}
@@ -1307,17 +1431,6 @@ export default function Game() {
         </>
       ) : (
         <div className={`play-stack phase-${phase}`}>
-          {isRoomPlaying && (
-            <div className="challenge-game-bar">
-              <span>
-                Song {room.result?.position ?? room.state?.current_round?.position} of{" "}
-                {room.summary?.song_count ?? "?"} · {room.state?.total_points ?? 0} points
-              </span>
-              <button type="button" onClick={room.exit}>
-                Challenge room
-              </button>
-            </div>
-          )}
           {isRoomPlaying && room.error && (
             <p role="alert" className="inline-error">
               {room.error}
@@ -1328,45 +1441,14 @@ export default function Game() {
               Refresh my progress to continue
             </button>
           )}
-          <div className="round-topline">
-            <span>
-              {isRoomPlaying
-                ? [
-                    room.summary?.filters.genres.join(" · ") || "All genres",
-                    room.summary?.filters.countries.map(countryDisplay).join(" · ") ||
-                      "All origins",
-                  ].join(" — ")
-                : [
-                    activeFilters.artist?.name ?? "All artists",
-                    activeFilters.genres.length ? activeFilters.genres.join(" · ") : "All genres",
-                    activeFilters.countries.length
-                      ? activeFilters.countries.map(countryDisplay).join(" · ")
-                      : "All origins",
-                  ].join(" — ")}
-            </span>
-          </div>
 
-          <div
-            className={`play-mode-stage${openUtilityPanel === "stats" ? " is-showing-stats" : ""}`}
-          >
-            {openUtilityPanel === "stats" ? (
-              <section
-                className="statistics-view"
-                id="statistics-panel"
-                aria-labelledby="personal-stats-heading"
-              >
-                <PersonalStatistics history={roundHistory} stats={personalStats} />
-              </section>
-            ) : (
-              <div className="gameplay-view">
+          <div className="play-mode-stage">
+            <div className="gameplay-view">
+              <div className="round-play-area">
                 <section className="listening-card" aria-label="Audio controls">
                   {phase !== "revealed" && (
                     <div className="clue-status">
                       <PotentialPoints attempt={attempt} />
-                      <p className="clue-readout">
-                        Current clue: {unlockedDuration}{" "}
-                        {unlockedDuration === 1 ? "second" : "seconds"}
-                      </p>
                     </div>
                   )}
                   <div className="vinyl-control-deck">
@@ -1407,41 +1489,23 @@ export default function Game() {
                     <nav className="game-actions-dock" aria-label="Round controls">
                       <button
                         disabled={isRoomPlaying && (room.pending || room.uncertain)}
-                        ref={revealButtonRef}
-                        className={`dock-side-action dock-reveal${isRevealArmed ? " is-confirming" : ""}`}
+                        className="dock-side-action dock-reveal"
                         type="button"
-                        aria-label={
+                        onClick={
                           phase === "revealed"
-                            ? isRoomPlaying
-                              ? "Back to room"
-                              : "Change filters"
-                            : isRevealArmed
-                              ? "Confirm reveal song"
-                              : "Reveal song"
+                            ? changeFilters
+                            : () => advanceAttempt({ resumePlayback: true, preserveSearch: true })
                         }
-                        aria-pressed={phase === "playing" ? isRevealArmed : undefined}
-                        onClick={() => {
-                          if (phase === "revealed") changeFilters();
-                          else if (isRevealArmed) void finishRound("gave_up");
-                          else setIsRevealArmed(true);
-                        }}
                       >
-                        {phase === "revealed" ? (
-                          isRoomPlaying ? (
-                            "Back to room"
-                          ) : (
-                            "Change filters"
-                          )
-                        ) : (
-                          <span className="reveal-button-copy" aria-live="polite">
-                            <span className="reveal-button-default">Reveal</span>
-                            <span className="reveal-button-confirm">Reveal now?</span>
-                          </span>
-                        )}
+                        {phase === "revealed"
+                          ? isRoomPlaying
+                            ? "Back to room"
+                            : "Change filters"
+                          : "Next clue"}
                       </button>
                       {phase !== "revealed" && (
                         <button
-                          className={`dock-play-action${isAudioPlaying ? " is-playing" : ""}`}
+                          className={`dock-play-action dock-side-action${isAudioPlaying ? " is-playing" : ""}`}
                           type="button"
                           onClick={() => {
                             if (isAudioPlaying) audioRef.current?.pause();
@@ -1460,18 +1524,16 @@ export default function Game() {
                           )}
                         </button>
                       )}
-                      <button
-                        disabled={isRoomPlaying && (room.pending || room.uncertain)}
-                        className="dock-side-action dock-skip"
-                        type="button"
-                        onClick={
-                          phase === "revealed"
-                            ? () => void startNextRound()
-                            : () => advanceAttempt({ resumePlayback: true, preserveSearch: true })
-                        }
-                      >
-                        {phase === "revealed" ? "Next song" : "Next clue"}
-                      </button>
+                      {phase === "revealed" && (
+                        <button
+                          disabled={isRoomPlaying && (room.pending || room.uncertain)}
+                          className="dock-side-action dock-skip"
+                          type="button"
+                          onClick={() => void startNextRound()}
+                        >
+                          Next song
+                        </button>
+                      )}
                     </nav>
                   </div>
                   {audioError && <p className="inline-error">{audioError}</p>}
@@ -1554,35 +1616,34 @@ export default function Game() {
                     </div>
                   </div>
                 </div>
-
-                {previousGuesses.length > 0 && (
-                  <section className="previous-guesses" aria-labelledby="previous-heading">
-                    <span className="eyebrow" id="previous-heading">
-                      Wrong
-                    </span>
-                    <ul>
-                      {previousGuesses.map((guess) => (
-                        <li key={guess.id}>
-                          <span aria-hidden="true">×</span>
-                          {guess.artwork_url ? (
-                            <img src={guess.artwork_url} alt="" width="48" height="48" />
-                          ) : (
-                            <i aria-hidden="true">♪</i>
-                          )}
-                          <div>
-                            <strong>{guess.title}</strong>
-                            <small>{guess.artist}</small>
-                            <small>
-                              {guess.album ?? "Unknown album"} · {guess.release_year}
-                            </small>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                )}
               </div>
-            )}
+              {previousGuesses.length > 0 && (
+                <section className="previous-guesses" aria-labelledby="previous-heading">
+                  <span className="eyebrow" id="previous-heading">
+                    Wrong
+                  </span>
+                  <ul>
+                    {previousGuesses.map((guess) => (
+                      <li key={guess.id}>
+                        <span aria-hidden="true">×</span>
+                        {guess.artwork_url ? (
+                          <img src={guess.artwork_url} alt="" width="48" height="48" />
+                        ) : (
+                          <i aria-hidden="true">♪</i>
+                        )}
+                        <div>
+                          <strong>{guess.title}</strong>
+                          <small>{guess.artist}</small>
+                          <small>
+                            {guess.album ?? "Unknown album"} · {guess.release_year}
+                          </small>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1635,6 +1696,8 @@ function VinylProgress({
   const center = 120;
   const ringRadius = 106;
   const progressOffset = 100 - progressPercent;
+  const unlockedPercent =
+    (SNIPPET_DURATIONS[attempt] / SNIPPET_DURATIONS[SNIPPET_DURATIONS.length - 1]) * 100;
   const tickInnerRadius = 101;
   const tickOuterRadius = 111;
   const totalDuration = SNIPPET_DURATIONS[SNIPPET_DURATIONS.length - 1];
@@ -1660,7 +1723,16 @@ function VinylProgress({
       </div>
       {!revealed && (
         <svg className="vinyl-progress-ring" viewBox="0 0 240 240" aria-hidden="true">
-          <circle className="vinyl-ring-base" cx={center} cy={center} r={ringRadius} />
+          <circle className="vinyl-ring-locked" cx={center} cy={center} r={ringRadius} />
+          <circle
+            className="vinyl-ring-base"
+            cx={center}
+            cy={center}
+            r={ringRadius}
+            pathLength="100"
+            strokeDasharray={`${unlockedPercent} 100`}
+            transform={`rotate(-90 ${center} ${center})`}
+          />
           <circle
             className="vinyl-ring-fill"
             cx={center}
@@ -1690,11 +1762,12 @@ function VinylProgress({
 }
 
 type VolumeControlProps = {
+  id?: string;
   volume: number;
   onChange: (volume: number) => void;
 };
 
-function VolumeControl({ volume, onChange }: VolumeControlProps) {
+function VolumeControl({ id = "playback-volume", volume, onChange }: VolumeControlProps) {
   const percentage = Math.round(volume * 100);
   const trackStyle = { "--volume-level": `${percentage}%` } as CSSProperties;
 
@@ -1705,11 +1778,11 @@ function VolumeControl({ volume, onChange }: VolumeControlProps) {
         {volume > 0 && <path d="M16 9.5a4 4 0 0 1 0 5" />}
         {volume > 0.5 && <path d="M18.5 7a7.5 7.5 0 0 1 0 10" />}
       </svg>
-      <label className="sr-only" htmlFor="playback-volume">
+      <label className="sr-only" htmlFor={id}>
         Playback volume
       </label>
       <input
-        id="playback-volume"
+        id={id}
         type="range"
         min="0"
         max="100"
@@ -1718,7 +1791,7 @@ function VolumeControl({ volume, onChange }: VolumeControlProps) {
         aria-valuetext={`${percentage} percent`}
         onChange={(event) => onChange(Number(event.target.value) / 100)}
       />
-      <output htmlFor="playback-volume">{percentage}%</output>
+      <output htmlFor={id}>{percentage}%</output>
     </div>
   );
 }

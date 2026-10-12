@@ -400,13 +400,13 @@ export default function SetupWizard({
             <SummaryRow label="Artist" value={filters.artist?.name ?? "Any artist"} />
             <SummaryRow
               label="Genre"
-              value={filters.genres.length ? filters.genres.join(" · ") : "Any genre"}
+              value={filters.genres.length ? selectionSummary(filters.genres) : "Any genre"}
             />
             <SummaryRow
               label="Country"
               value={
                 filters.countries.length
-                  ? filters.countries.map(countryDisplay).join(" · ")
+                  ? selectionSummary(filters.countries.map(countryDisplay))
                   : "Any country"
               }
             />
@@ -454,6 +454,54 @@ export default function SetupWizard({
   );
 }
 
+function useMenuPageSize() {
+  const [size, setSize] = useState(2);
+  useEffect(() => {
+    const update = () => setSize(window.innerHeight < 450 ? 1 : window.innerHeight < 700 ? 2 : 3);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return size;
+}
+
+function ResultPages({
+  page,
+  count,
+  size,
+  onPage,
+}: {
+  page: number;
+  count: number;
+  size: number;
+  onPage: (page: number) => void;
+}) {
+  if (count <= size) return null;
+  return (
+    <nav className="setup-result-pages" aria-label="Search results pages">
+      <button
+        type="button"
+        aria-label="Previous results"
+        disabled={page === 0}
+        onClick={() => onPage(page - 1)}
+      >
+        ←
+      </button>
+      <span>
+        {page + 1} / {Math.ceil(count / size)}
+      </span>
+      <button
+        type="button"
+        aria-label="Next results"
+        disabled={(page + 1) * size >= count}
+        onClick={() => onPage(page + 1)}
+      >
+        →
+      </button>
+    </nav>
+  );
+}
+
 interface ArtistStepProps {
   artist: ArtistOption | null;
   endpoint: string;
@@ -462,6 +510,9 @@ interface ArtistStepProps {
 
 function ArtistStep({ artist, endpoint, onChange }: ArtistStepProps) {
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+  const pageSize = useMenuPageSize();
+  useEffect(() => setPage(0), [pageSize]);
   const [results, setResults] = useState<ArtistOption[]>([]);
   const [searching, setSearching] = useState(false);
   const [overlayOpen, setOverlayOpen] = useState(false);
@@ -491,6 +542,7 @@ function ArtistStep({ artist, endpoint, onChange }: ArtistStepProps) {
         if (!response.ok) throw new Error("Artist search failed");
         const payload = (await response.json()) as ArtistOption[];
         setResults(payload.filter((option) => option.id !== artist?.id));
+        setPage(0);
       } catch (searchError) {
         if (!(searchError instanceof DOMException && searchError.name === "AbortError")) {
           setResults([]);
@@ -547,6 +599,7 @@ function ArtistStep({ artist, endpoint, onChange }: ArtistStepProps) {
                 onFocus={() => setOverlayOpen(Boolean(query.trim()))}
                 onChange={(event) => {
                   setQuery(event.target.value);
+                  setPage(0);
                   setOverlayOpen(Boolean(event.target.value.trim()));
                 }}
               />
@@ -554,29 +607,32 @@ function ArtistStep({ artist, endpoint, onChange }: ArtistStepProps) {
             <small aria-live="polite">{searching ? "Searching…" : ""}</small>
           </div>
           {shouldShowSetupOverlay(overlayOpen, query, results.length) && (
-            <ul className="setup-search-results" id={listId} role="listbox" aria-label="Artists">
-              {results.map((option) => (
-                <li key={option.id}>
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected="false"
-                    onClick={() => {
-                      onChange(option);
-                      setQuery("");
-                      setResults([]);
-                      setOverlayOpen(false);
-                      window.requestAnimationFrame(() => inputRef.current?.focus());
-                    }}
-                  >
-                    <span>
-                      <strong>{option.name}</strong>
-                      {option.disambiguation && <small>{option.disambiguation}</small>}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <div className="setup-result-surface">
+              <ul className="setup-search-results" id={listId} role="listbox" aria-label="Artists">
+                {results.slice(page * pageSize, page * pageSize + pageSize).map((option) => (
+                  <li key={option.id}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected="false"
+                      onClick={() => {
+                        onChange(option);
+                        setQuery("");
+                        setResults([]);
+                        setOverlayOpen(false);
+                        window.requestAnimationFrame(() => inputRef.current?.focus());
+                      }}
+                    >
+                      <span>
+                        <strong>{option.name}</strong>
+                        {option.disambiguation && <small>{option.disambiguation}</small>}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <ResultPages page={page} count={results.length} size={pageSize} onPage={setPage} />
+            </div>
           )}
         </div>
       </div>
@@ -600,6 +656,9 @@ function OptionStep({
   formatOption = (option) => option,
 }: OptionStepProps) {
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+  const pageSize = useMenuPageSize();
+  useEffect(() => setPage(0), [pageSize]);
   const [overlayOpen, setOverlayOpen] = useState(false);
   const searchId = useId();
   const listId = useId();
@@ -654,32 +713,43 @@ function OptionStep({
                 onFocus={() => setOverlayOpen(true)}
                 onChange={(event) => {
                   setQuery(event.target.value);
+                  setPage(0);
                   setOverlayOpen(true);
                 }}
               />
             </div>
           </div>
           {overlayOpen && (
-            <div className="setup-option-list" id={listId}>
-              {visibleOptions.length === 0 ? (
-                <p>{options.length === 0 ? "Loading catalogue…" : `No matching ${label}.`}</p>
-              ) : (
-                visibleOptions.map((option) => (
-                  <label key={option}>
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(option)}
-                      onChange={() => {
-                        onChange(toggleSetupOption(selected, option));
-                        setOverlayOpen(true);
-                        window.requestAnimationFrame(() => inputRef.current?.focus());
-                      }}
-                    />
-                    <span>{formatOption(option)}</span>
-                    <b aria-hidden="true">{selected.includes(option) ? "●" : "○"}</b>
-                  </label>
-                ))
-              )}
+            <div className="setup-result-surface">
+              <div className="setup-option-list" id={listId}>
+                {visibleOptions.length === 0 ? (
+                  <p>{options.length === 0 ? "Loading catalogue…" : `No matching ${label}.`}</p>
+                ) : (
+                  visibleOptions
+                    .slice(page * pageSize, page * pageSize + pageSize)
+                    .map((option) => (
+                      <label key={option}>
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(option)}
+                          onChange={() => {
+                            onChange(toggleSetupOption(selected, option));
+                            setOverlayOpen(true);
+                            window.requestAnimationFrame(() => inputRef.current?.focus());
+                          }}
+                        />
+                        <span>{formatOption(option)}</span>
+                        <b aria-hidden="true">{selected.includes(option) ? "●" : "○"}</b>
+                      </label>
+                    ))
+                )}
+              </div>
+              <ResultPages
+                page={page}
+                count={visibleOptions.length}
+                size={pageSize}
+                onPage={setPage}
+              />
             </div>
           )}
         </div>
@@ -1031,6 +1101,12 @@ function isStepDefault(
     filters.popularityMin === defaults.popularityMin &&
     filters.popularityMax === defaults.popularityMax
   );
+}
+
+export function selectionSummary(values: string[]): string {
+  return values.length > 2
+    ? `${values.slice(0, 2).join(" · ")} + ${values.length - 2} more`
+    : values.join(" · ");
 }
 
 function rangeSummary(low: number, high: number, min: number, max: number): string {

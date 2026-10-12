@@ -465,3 +465,46 @@
     font-size: 0.53rem;
   }
 }
+
+/* Two side controls free the record face and scale with available height. */
+.is-playing .vinyl-control-deck {
+  --deck-vinyl-size: min(
+    82cqi,
+    22rem,
+    max(4rem, calc((var(--round-viewport-height, 100dvh) - 17rem) * 0.6))
+  );
+  --deck-stage-height: var(--deck-vinyl-size);
+  grid-template-columns: minmax(0, 1fr);
+}
+.is-playing .vinyl-control-deck .game-actions-dock {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: var(--deck-vinyl-size);
+}
+.is-playing .vinyl-control-deck .dock-reveal,
+.is-playing .vinyl-control-deck .dock-play-action {
+  grid-row: 1;
+  align-self: end;
+  margin-bottom: 0.25rem;
+  width: clamp(2.75rem, 15cqi, 4rem);
+  padding: 0.5rem;
+  font-size: 0.65rem;
+}
+.is-playing .vinyl-control-deck .dock-reveal {
+  grid-column: 1;
+  justify-self: start;
+}
+.is-playing .vinyl-control-deck .dock-play-action {
+  grid-column: 2;
+  justify-self: end;
+  color: var(--paper);
+  background: var(--ink);
+}
+.is-playing .vinyl-control-deck .dock-play-action:not(:disabled) {
+  transform: translate(-0.15rem, -0.15rem);
+  box-shadow: 0.2rem 0.2rem 0 var(--accent);
+}
+@media (max-height: 500px) and (min-aspect-ratio: 1/1) {
+  .is-playing .vinyl-control-deck {
+    --deck-vinyl-size: min(72cqi, calc(100dvh - 4rem));
+  }
+}

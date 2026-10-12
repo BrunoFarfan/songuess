@@ -1,5 +1,5 @@
 import React, { useState, type ReactNode } from "react";
-import type { SetupFilters } from "./SetupWizard";
+import { selectionSummary, type SetupFilters } from "./SetupWizard";
 import type { RoomController } from "./useRoom";
 import "./ChallengeRoom.css";
 
@@ -197,7 +197,11 @@ export function ChallengeDetails({
         <div>
           <dt>Your mix</dt>
           <dd>
-            {[filters.artist?.name, filters.genres.join(" · "), filters.countries.join(" · ")]
+            {[
+              filters.artist?.name,
+              selectionSummary(filters.genres),
+              selectionSummary(filters.countries),
+            ]
               .filter(Boolean)
               .join(" / ") || "All artists, genres & countries"}
           </dd>
