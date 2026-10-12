@@ -63,13 +63,21 @@ class RoomAction(BaseModel):
 RoundResult = Literal["clue_1", "clue_2", "clue_3", "clue_4", "clue_5", "clue_6", "not_guessed"]
 
 
+class LeaderboardSong(BaseModel):
+    position: int
+    points: int | None
+    result: RoundResult | None
+
+
 class LeaderboardEntry(BaseModel):
+    player_id: str
     display_name: str
     rank: int
     points: int
     correct_count: int
     completed_count: int
     is_you: bool
+    songs: list[LeaderboardSong] = Field(max_length=20)
 
 
 class RoomSummary(BaseModel):
@@ -232,6 +240,7 @@ def _score(rows) -> tuple[int, ...]:
 
 
 async def _summary(database: Database, room, guest: str | None):
+    closed = now() >= room["closes_at"]
     participants = await database.fetch_all(
         "SELECT * FROM participants WHERE room_code = ? ORDER BY joined_at, guest_id",
         (room["code"],),
@@ -241,24 +250,38 @@ async def _summary(database: Database, room, guest: str | None):
     )
     ranked = []
     for participant in participants:
-        own = [row for row in rounds if row["guest_id"] == participant["guest_id"]]
-        ranked.append((_score(own), participant, sum(row["result"] is not None for row in own)))
+        own = sorted(
+            (row for row in rounds if row["guest_id"] == participant["guest_id"]),
+            key=lambda row: row["position"],
+        )
+        ranked.append((_score(own), participant, own))
     ranked.sort(key=lambda entry: entry[0], reverse=True)
     leaderboard = []
     previous = None
     rank = 0
-    for index, (score, participant, completed) in enumerate(ranked, 1):
+    for index, (score, participant, own) in enumerate(ranked, 1):
         if score != previous:
             rank = index
         previous = score
         leaderboard.append(
             {
+                "player_id": hashlib.sha256(
+                    f"{room['code']}:{participant['guest_id']}".encode()
+                ).hexdigest()[:16],
                 "display_name": participant["display_name"],
                 "rank": rank,
                 "points": score[0],
                 "correct_count": score[1],
-                "completed_count": completed,
+                "completed_count": sum(row["result"] is not None for row in own),
                 "is_you": participant["guest_id"] == guest,
+                "songs": [
+                    {
+                        "position": row["position"],
+                        "points": _score([row])[0] if row["result"] is not None or closed else None,
+                        "result": row["result"],
+                    }
+                    for row in own
+                ],
             }
         )
     return {
@@ -268,7 +291,7 @@ async def _summary(database: Database, room, guest: str | None):
         "created_at": _timestamp(room["created_at"]),
         "closes_at": _timestamp(room["closes_at"]),
         "delete_at": _timestamp(room["delete_at"]),
-        "status": "closed" if now() >= room["closes_at"] else "active",
+        "status": "closed" if closed else "active",
         "participant_count": len(participants),
         "is_member": any(item["is_you"] for item in leaderboard),
         "leaderboard": leaderboard,
