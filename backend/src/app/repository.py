@@ -208,7 +208,7 @@ async def _song_candidates(database: Database, query: str, candidate_limit: int)
         f"SELECT {columns} FROM song_search_fts f "
         "JOIN songs s ON s.id = CAST(f.song_id AS INTEGER) "
         "WHERE song_search_fts MATCH ? AND s.enabled = 1 AND s.preview_url <> '' "
-        "ORDER BY bm25(song_search_fts) LIMIT ?",
+        "ORDER BY f.rank LIMIT ?",
         [_trigram_match_query(query), candidate_limit],
     )
 
