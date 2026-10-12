@@ -66,12 +66,14 @@ export type RoomSummary = {
   participant_count: number;
   is_member: boolean;
   leaderboard: {
+    player_id: string;
     display_name: string;
     rank: number;
     points: number;
     correct_count: number;
     completed_count: number;
     is_you: boolean;
+    songs: { position: number; points: number | null; result: RoundResult | null }[];
   }[];
 };
 export type RoomAction = "guess" | "skip" | "give_up";

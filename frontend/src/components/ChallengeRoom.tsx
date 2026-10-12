@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { pointsForResult } from "../lib/roundHistory";
 import type { RoomController } from "./useRoom";
 import "./ChallengeRoom.css";
 export default function ChallengeRoom({ room }: { room: RoomController }) {
   const [copiedAt, setCopiedAt] = useState<number | null>(null);
+  const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
   useEffect(() => {
     if (copiedAt === null) return;
     const timer = window.setTimeout(() => setCopiedAt(null), 2000);
@@ -11,6 +11,9 @@ export default function ChallengeRoom({ room }: { room: RoomController }) {
   }, [copiedAt]);
   const summary = room.summary;
   const complete = room.state && !room.state.current_round;
+  function showMyResults() {
+    setExpandedPlayer(summary?.leaderboard.find((entry) => entry.is_you)?.player_id ?? null);
+  }
   return (
     <section className="challenge-room" aria-labelledby="challenge-heading">
       <header className="flow-heading">
@@ -99,7 +102,7 @@ export default function ChallengeRoom({ room }: { room: RoomController }) {
                 {new Date(summary.delete_at).toLocaleDateString()}.
               </p>
               {summary.is_member && (
-                <button type="button" disabled={room.pending} onClick={() => void room.resume()}>
+                <button type="button" onClick={showMyResults}>
                   View my results
                 </button>
               )}
@@ -109,7 +112,7 @@ export default function ChallengeRoom({ room }: { room: RoomController }) {
               className="flow-primary"
               type="button"
               disabled={room.pending}
-              onClick={() => void room.resume()}
+              onClick={complete ? showMyResults : () => void room.resume()}
             >
               {complete ? "View my results" : room.pending ? "Loading…" : "Start listening"}
             </button>
@@ -141,32 +144,6 @@ export default function ChallengeRoom({ room }: { room: RoomController }) {
               </button>
             </form>
           )}
-          {room.state && room.state.results.length > 0 && (
-            <details className="challenge-results" open>
-              <summary>Your songs</summary>
-              <ol>
-                {room.state.results.map((item) => (
-                  <li key={item.position}>
-                    {item.reveal.artwork_url && (
-                      <img src={item.reveal.artwork_url} alt="" width="48" height="48" />
-                    )}
-                    <span>
-                      <strong>
-                        {item.position}. {item.reveal.title}
-                      </strong>
-                      <small>
-                        {item.reveal.artist} ·{" "}
-                        {item.result === "not_guessed"
-                          ? "Not guessed"
-                          : `Clue ${item.result.slice(-1)}`}
-                      </small>
-                    </span>
-                    <b>{pointsForResult(item.result)} pts</b>
-                  </li>
-                ))}
-              </ol>
-            </details>
-          )}
           <div className="challenge-standings">
             <div className="challenge-standings-heading">
               <h2>Standings</h2>
@@ -176,22 +153,87 @@ export default function ChallengeRoom({ room }: { room: RoomController }) {
             </div>
             {summary.leaderboard.length ? (
               <ol>
-                {summary.leaderboard.map((entry, index) => (
-                  <li key={index} className={entry.is_you ? "is-you" : ""}>
-                    <b>{entry.rank}</b>
-                    <span>
-                      <strong>
-                        {entry.display_name}
-                        {entry.is_you ? " (you)" : ""}
-                      </strong>
-                      <small>
-                        {entry.correct_count} correct · {entry.completed_count}/{summary.song_count}{" "}
-                        played
-                      </small>
-                    </span>
-                    <strong>{entry.points} pts</strong>
-                  </li>
-                ))}
+                {summary.leaderboard.map((entry) => {
+                  const expanded = expandedPlayer === entry.player_id;
+                  const panelId = `player-songs-${entry.player_id}`;
+                  return (
+                    <li key={entry.player_id} className={entry.is_you ? "is-you" : ""}>
+                      <button
+                        className="challenge-player-toggle"
+                        type="button"
+                        aria-expanded={expanded}
+                        aria-controls={panelId}
+                        onClick={() => setExpandedPlayer(expanded ? null : entry.player_id)}
+                      >
+                        <b className="challenge-player-rank">{entry.rank}</b>
+                        <span className="challenge-player-name">
+                          <strong>
+                            {entry.display_name}
+                            {entry.is_you ? " (you)" : ""}
+                          </strong>
+                          <small>
+                            {entry.correct_count} correct · {entry.completed_count}/
+                            {summary.song_count} played
+                          </small>
+                        </span>
+                        <strong>{entry.points} pts</strong>
+                        <span className="challenge-player-chevron" aria-hidden="true">
+                          ⌄
+                        </span>
+                      </button>
+                      <div
+                        id={panelId}
+                        aria-hidden={!expanded}
+                        inert={!expanded}
+                        className="challenge-player-details"
+                      >
+                        <div className="challenge-player-details-inner">
+                          <ol
+                            className="challenge-player-songs"
+                            aria-label={`Song scores for ${entry.display_name}`}
+                          >
+                            {entry.songs.map((song) => {
+                              const reveal =
+                                room.state && song.position <= room.state.completed_count
+                                  ? room.state.results.find(
+                                      (item) => item.position === song.position,
+                                    )?.reveal
+                                  : undefined;
+                              return (
+                                <li key={song.position}>
+                                  <span className="challenge-song-number">
+                                    {String(song.position).padStart(2, "0")}
+                                  </span>
+                                  {reveal?.artwork_url && (
+                                    <img
+                                      src={reveal.artwork_url}
+                                      alt=""
+                                      width="40"
+                                      height="40"
+                                      loading="lazy"
+                                    />
+                                  )}
+                                  <span className="challenge-song-name">
+                                    <strong>{reveal?.title ?? `Song ${song.position}`}</strong>
+                                    <small>
+                                      {reveal ? `${reveal.artist} · ` : ""}
+                                      {song.result === null
+                                        ? "Not played"
+                                        : song.result === "not_guessed"
+                                          ? "Not guessed"
+                                          : `Clue ${song.result.slice(-1)}`}
+                                    </small>
+                                  </span>
+                                  <b>{song.points === null ? "—" : `${song.points} pts`}</b>
+                                </li>
+                              );
+                            })}
+                          </ol>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
               </ol>
             ) : (
               <p>No scores yet. The first record is yours to set.</p>

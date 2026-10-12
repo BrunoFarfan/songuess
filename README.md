@@ -161,7 +161,9 @@ until the deadline, even when everyone who previously joined has finished.
 Every song allows one full six-clue round. The server records guesses, skips, reveals,
 and results. Reopening the invite in the same browser resumes saved progress. Correct
 answers earn 6–1 points according to the clue; giving up or exhausting clues earns zero.
-Standings are visible during play and refresh while the room panel is visible. Ties use
+Standings are visible during play and refresh while the room panel is visible. Click a
+player's row to expand their per-song points; opening another player closes the previous
+row. Unplayed songs are marked separately from failed guesses. Ties use
 the number of correct answers, then clue-1 solves through clue-6 solves; equal results
 share a rank. Other players' song answers are not included in standings.
 

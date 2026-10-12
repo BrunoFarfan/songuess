@@ -108,6 +108,89 @@ def test_resume_score_ties_and_open_join(catalog):
     assert summary["participant_count"] == 2
 
 
+def test_standings_song_scores_and_stable_player_identity(catalog):
+    c = client()
+    code = create(c, 4)
+    other = client()
+    assert other.post(f"/api/rooms/{code}/join", json={"display_name": "Player"}).status_code == 200
+    initial = c.get(f"/api/rooms/{code}").json()["leaderboard"]
+    identities = {entry["is_you"]: entry["player_id"] for entry in initial}
+    assert len(set(identities.values())) == 2
+    assert all(entry["display_name"] == "Player" for entry in initial)
+    guest_ids = [c.cookies.get(COOKIE).split(".")[0], other.cookies.get(COOKIE).split(".")[0]]
+    assert all(player_id not in guest_ids for player_id in identities.values())
+    assert all(
+        entry["songs"]
+        == [{"position": position, "points": None, "result": None} for position in range(1, 5)]
+        for entry in initial
+    )
+    act(other, code, "guess", answer(catalog, code, 1))
+    act(c, code, "skip")
+    act(c, code, "skip")
+    act(c, code, "guess", answer(catalog, code, 1))
+    act(c, code, "give_up")
+    leaderboard = c.get(f"/api/rooms/{code}").json()["leaderboard"]
+    assert [entry["is_you"] for entry in leaderboard] == [False, True]
+    assert {entry["is_you"]: entry["player_id"] for entry in leaderboard} == identities
+    own = next(entry for entry in leaderboard if entry["is_you"])
+    assert own["songs"] == [
+        {"position": 1, "points": 4, "result": "clue_3"},
+        {"position": 2, "points": 0, "result": "not_guessed"},
+        {"position": 3, "points": None, "result": None},
+        {"position": 4, "points": None, "result": None},
+    ]
+    assert own["completed_count"] == 2 and own["correct_count"] == 1
+    assert own["points"] == sum(song["points"] or 0 for song in own["songs"]) == 4
+    act(c, code, "guess", answer(catalog, code, 3))
+    reordered = c.get(f"/api/rooms/{code}").json()["leaderboard"]
+    assert [entry["is_you"] for entry in reordered] == [True, False]
+    assert {entry["is_you"]: entry["player_id"] for entry in reordered} == identities
+    public = TestClient(app).get(f"/api/rooms/{code}").json()["leaderboard"]
+    assert {entry["player_id"] for entry in public} == set(identities.values())
+    assert all(not entry["is_you"] for entry in public)
+    assert all(set(song) == {"position", "points", "result"} for song in public[0]["songs"])
+    with connect(catalog) as connection:
+        connection.execute("UPDATE rooms SET closes_at=0 WHERE code=?", (code,))
+        connection.commit()
+    closed = c.get(f"/api/rooms/{code}").json()
+    assert closed["status"] == "closed"
+    for entry in closed["leaderboard"]:
+        assert entry["player_id"] == identities[entry["is_you"]]
+        assert all(song["points"] is not None for song in entry["songs"])
+        assert entry["points"] == sum(song["points"] for song in entry["songs"])
+        assert all(song["points"] == 0 for song in entry["songs"] if song["result"] is None)
+    assert closed["leaderboard"][0]["songs"][-1] == {"position": 4, "points": 0, "result": None}
+
+
+def test_standings_include_twenty_slots_and_all_clue_scores(catalog):
+    with connect(catalog) as connection:
+        connection.executemany(
+            "INSERT INTO songs "
+            "(id,title,artist,release_year,popularity_score,apple_track_id,preview_url,enabled) "
+            "VALUES (?, ?, 'Artist', 2000, 80, ?, ?, 1)",
+            [(i, f"Song {i}", f"apple-{i}", f"https://audio/{i}") for i in range(5, 21)],
+        )
+        connection.commit()
+    c = client()
+    code = create(c, 20)
+    initial = c.get(f"/api/rooms/{code}").json()["leaderboard"][0]
+    assert initial["completed_count"] == 0
+    assert [song["position"] for song in initial["songs"]] == list(range(1, 21))
+    assert all(song["points"] is None and song["result"] is None for song in initial["songs"])
+    with connect(catalog) as connection:
+        connection.executemany(
+            "UPDATE participant_rounds SET result=? WHERE room_code=? AND position=?",
+            [(f"clue_{clue}", code, clue) for clue in range(1, 7)],
+        )
+        connection.commit()
+    scored = c.get(f"/api/rooms/{code}").json()["leaderboard"][0]
+    assert [song["points"] for song in scored["songs"][:6]] == [6, 5, 4, 3, 2, 1]
+    assert [song["result"] for song in scored["songs"][:6]] == [
+        f"clue_{clue}" for clue in range(1, 7)
+    ]
+    assert scored["points"] == sum(song["points"] or 0 for song in scored["songs"]) == 21
+
+
 def test_frozen_playlist_prefetch_and_deadline_do_not_advance_progress(catalog):
     c = client()
     code = create(c, 4)
