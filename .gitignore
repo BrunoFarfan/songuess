@@ -1,5 +1,6 @@
 .DS_Store
 .env
+.dev.vars
 .pnpm-store/
 .playwright-cli/
 .pytest_cache/

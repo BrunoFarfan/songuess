@@ -11,9 +11,27 @@ export default defineConfig({
     enabled: false,
   },
   vite: {
+    plugins: [
+      {
+        name: "songuess-dependency-cache",
+        // Astro checks/builds and the live dev server must not overwrite one
+        // another's optimized modules (including React's dev/prod runtimes).
+        config: (_config, { command, mode }) => ({
+          cacheDir: `node_modules/.vite/songuess-${command}-${mode}`,
+        }),
+      },
+    ],
+    optimizeDeps: {
+      include: [
+        "three",
+        "three/addons/loaders/GLTFLoader.js",
+        "three/addons/environments/RoomEnvironment.js",
+        "three/addons/geometries/RoundedBoxGeometry.js",
+      ],
+    },
     server: {
       proxy: {
-        "/api": apiTarget,
+        "/api": { target: apiTarget, changeOrigin: false },
       },
     },
   },

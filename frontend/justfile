@@ -16,5 +16,5 @@ build:
   pnpm build
 
 # Start the Astro development server.
-dev:
-  pnpm dev
+dev *args:
+  pnpm dev {{args}}

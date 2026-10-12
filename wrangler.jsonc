@@ -23,9 +23,11 @@
     "enabled": true,
     "head_sampling_rate": 1
   },
+  "triggers": { "crons": ["0 * * * *"] },
   "env": {
     "preview": {
       "name": "songuess-preview",
+      "triggers": { "crons": ["0 * * * *"] },
       "d1_databases": [
         {
           "binding": "DB",
@@ -37,6 +39,7 @@
     },
     "production": {
       "name": "songuess",
+      "triggers": { "crons": ["0 * * * *"] },
       "routes": [
         {
           "pattern": "songuess.bruni.to",

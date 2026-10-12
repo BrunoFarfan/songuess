@@ -32,8 +32,12 @@ export-d1 output="release/catalog.sql":
   uv run --project backend python -m dataset.export_d1 --output {{output}}
 
 # Run the complete Worker and static assets through workerd.
-worker-dev:
-  cd backend && uv run pywrangler dev
+worker-dev *args:
+  cd backend && uv run pywrangler dev {{args}}
+
+# Remove expired challenge rooms and all their participant progress locally.
+rooms-cleanup:
+  cd backend && just rooms-cleanup
 
 # Validate the Worker bundle without publishing it.
 worker-dry-run:

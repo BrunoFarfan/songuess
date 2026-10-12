@@ -340,7 +340,7 @@ describe("revealed song popularity", () => {
     expect(html).toContain("Listen on Spotify");
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noopener noreferrer"');
-    expect(html.match(/vinyl-sleeve-reveal__confetti/g)).toHaveLength(1);
+    expect(html.match(/class="vinyl-sleeve-reveal__confetti/g)).toHaveLength(3);
     expect(html).toMatch(
       /<div class="vinyl-sleeve-reveal__confetti" aria-hidden="true">(?:<span><\/span>){14}<\/div>/,
     );

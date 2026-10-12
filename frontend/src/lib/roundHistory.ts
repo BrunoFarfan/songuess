@@ -51,7 +51,9 @@ export function addOrUpdateRound(
   history: LocalRoundRecord[],
   record: LocalRoundRecord,
 ): LocalRoundRecord[] {
-  return [record, ...history.filter((item) => item.id !== record.id)].slice(0, MAX_ROUND_HISTORY);
+  return [record, ...history.filter((item) => item.id !== record.id)]
+    .sort((left, right) => Date.parse(right.completedAt) - Date.parse(left.completedAt))
+    .slice(0, MAX_ROUND_HISTORY);
 }
 
 export function calculatePersonalStats(history: LocalRoundRecord[]): PersonalStats {

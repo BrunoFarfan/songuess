@@ -3,9 +3,12 @@ import React, {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
+  useRef,
   useState,
 } from "react";
 
+import { REVEAL_DURATION } from "../lib/vinylMotion";
 import PopularityScore from "./PopularityScore";
 import "./VinylSleeveReveal.css";
 
@@ -55,6 +58,8 @@ export default function VinylSleeveReveal({
   onRetry,
   className = "",
 }: VinylSleeveRevealProps) {
+  const previousRevealed = useRef(revealed);
+  const [returning, setReturning] = useState(false);
   const [revealSettled, setRevealSettled] = useState(false);
   const [Scene, setScene] = useState<typeof import("./VinylRevealScene").default | null>(null);
   const [sceneReady, setSceneReady] = useState(false);
@@ -68,6 +73,12 @@ export default function VinylSleeveReveal({
   const [vinylReady, setVinylReady] = useState(false);
   const [revealStartedAt, setRevealStartedAt] = useState(0);
   const [revealMode, setRevealMode] = useState<"3d" | "css" | null>(null);
+  const handleRevealComplete = useCallback(() => setRevealSettled(true), []);
+  useLayoutEffect(() => {
+    if (previousRevealed.current && !revealed && vinylReady && revealMode === "3d")
+      setReturning(true);
+    previousRevealed.current = revealed;
+  }, [revealed, vinylReady, revealMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,7 +122,8 @@ export default function VinylSleeveReveal({
     }
     if (!revealMode) return;
     setRevealSettled(false);
-    const timer = window.setTimeout(() => setRevealSettled(true), 1700);
+    if (revealMode === "3d") return;
+    const timer = window.setTimeout(() => setRevealSettled(true), REVEAL_DURATION);
     return () => window.clearTimeout(timer);
   }, [revealed, revealMode, !!song, loading]);
 
@@ -127,6 +139,7 @@ export default function VinylSleeveReveal({
     revealed && !revealMode ? "is-reveal-pending" : "",
     revealed && revealMode === "css" ? "is-css-reveal" : "",
     revealSettled ? "is-settled" : "",
+    returning ? "is-returning" : "",
     revealed && revealMode === "3d" ? "is-3d-ready" : "",
     vinylReady && !(revealed && revealMode === "css") ? "is-vinyl-ready" : "",
     outcomeClass,
@@ -151,6 +164,9 @@ export default function VinylSleeveReveal({
             artworkUrl={artworkUrl}
             revealStartedAt={revealStartedAt}
             isPlaying={isPlaying}
+            revealRequested={revealed}
+            onReturning={setReturning}
+            onRevealComplete={handleRevealComplete}
             onReady={handleSceneReady}
             onVinylReady={setVinylReady}
           />
@@ -175,11 +191,24 @@ export default function VinylSleeveReveal({
         </figure>
 
         {revealed && outcome === "correct" && (
-          <div className="vinyl-sleeve-reveal__confetti" aria-hidden="true">
-            {Array.from({ length: 14 }, (_, index) => (
-              <span key={index} />
+          <>
+            <div className="vinyl-sleeve-reveal__confetti" aria-hidden="true">
+              {Array.from({ length: 14 }, (_, index) => (
+                <span key={index} />
+              ))}
+            </div>
+            {["left", "right"].map((side) => (
+              <div
+                key={side}
+                className={`vinyl-sleeve-reveal__confetti vinyl-sleeve-reveal__confetti--${side}`}
+                aria-hidden="true"
+              >
+                {Array.from({ length: 14 }, (_, index) => (
+                  <span key={index} />
+                ))}
+              </div>
             ))}
-          </div>
+          </>
         )}
       </div>
 

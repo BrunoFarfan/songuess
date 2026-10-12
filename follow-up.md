@@ -92,17 +92,17 @@ Use the same model for primary and secondary actions, circular dock controls, mo
 
 ## 5. Asynchronous multiplayer rooms
 
-Add asynchronous rooms or sessions in which participants do not need to be online at the same time but always play the same frozen, ordered set of songs.
+Implemented as asynchronous challenges. Participants do not need to be online at the same time but always play the same frozen, ordered set of songs. See the README's asynchronous challenges section for API, guest identity, retention, and setup details.
 
 The intended room flow is:
 
-1. A player creates a room and chooses its filters, number of songs, and optional completion deadline.
-2. The server selects and freezes the ordered song set when the room is created or started.
+1. A player creates a room and chooses its filters, number of songs, and duration (up to 24 hours).
+2. The server selects and freezes the ordered song set immediately. There is no lobby.
 3. The creator shares a join code or link.
-4. Players join with a display name or account and complete the challenge independently.
+4. Players join with a display name and browser guest identity and complete the challenge independently. Joining stays open until the deadline.
 5. Each player may complete each song's normal six-clue round exactly once.
 6. The room records every player's progress and clue-based result for each song.
-7. When all players finish or the deadline passes, final standings use the scoring and tie-breaking rules from the clue-based leaderboard.
+7. Scores are visible throughout play. At the deadline, final standings use the scoring and tie-breaking rules from the clue-based leaderboard; unfinished songs count as zero points.
 
 “One attempt at each song” means one complete six-clue round per player and song, not one literal song guess. A player cannot restart a completed song to improve its score.
 
@@ -116,12 +116,12 @@ A room should persist:
 - Per-player progress
 - One result per player and song
 - Optional deadline
-- Room state, such as lobby, active, or completed
+- Deadline-derived room state: active or closed
 - Final scores and ranking
 
-Partial standings should be hidden from a player until they finish their own challenge, or until the room closes, so other results do not influence play.
+Partial standings are visible during play, with points and completion counts but without other participants' song answers. Results remain available for seven days after the deadline, then the room and all its progress are deleted.
 
-The first version may be a casual, honor-system competition. The current API exposes preview URLs and reveal data, so a cheating-resistant version would additionally require server-controlled round progression, guarded reveal access, and stronger player identity.
+The first version is a casual competition. Round progression and results are server-controlled, and a guest cannot replay a completed round by changing their name. Clearing cookies or using another browser can create a new identity, and public solo APIs still expose previews and reveals. A cheating-resistant version would additionally require guarded catalog/reveal access and stronger player identity.
 
 Design the shared result and session model so it can later support two modes:
 
