@@ -5,7 +5,7 @@ description = "Stateless FastAPI backend for Songuess"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.116,<1",
-    "pydantic==2.10.6",
+    "pydantic==2.12.5",
 ]
 
 [dependency-groups]
@@ -14,8 +14,8 @@ dev = [
     "pytest>=9.1.1",
     "ruff>=0.12,<1",
     "uvicorn[standard]>=0.35,<1",
-    "workers-py>=1.16.7",
-    "workers-runtime-sdk>=1.7.0",
+    "workers-py>=1.17.7",
+    "workers-runtime-sdk>=1.9.3",
 ]
 
 [tool.ruff]

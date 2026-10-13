@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import OrderedDict
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 
 from app.models import FilterContextRequest, FilterMetadata, RoundRequest
@@ -48,6 +49,55 @@ SELECT 1, lower(hex(randomblob(16))), json_object(
 """
 
 
+class EligibleSongs(Sequence[int]):
+    """A uniformly indexable song pool backed by a compact integer bitmap."""
+
+    def __init__(self, ids: tuple[int, ...], positions: dict[int, int], mask: int):
+        self.ids = ids
+        self.positions = positions
+        self.mask = mask
+
+    def __len__(self) -> int:
+        return self.mask.bit_count()
+
+    def __getitem__(self, index: int) -> int:
+        count = len(self)
+        if index < 0:
+            index += count
+        if not 0 <= index < count:
+            raise IndexError(index)
+        mask = self.mask
+        position = 0
+        # Binary partitioning finds the selected set bit in O(log(catalog size))
+        # C integer operations, without materializing thousands of eligible IDs.
+        for exponent in range((len(self.ids) - 1).bit_length() - 1, -1, -1):
+            width = 1 << exponent
+            lower = mask & ((1 << width) - 1)
+            lower_count = lower.bit_count()
+            if index < lower_count:
+                mask = lower
+            else:
+                index -= lower_count
+                mask >>= width
+                position += width
+        return self.ids[position]
+
+    def __iter__(self) -> Iterator[int]:
+        mask = self.mask
+        while mask:
+            lowest = mask & -mask
+            yield self.ids[lowest.bit_length() - 1]
+            mask ^= lowest
+
+    def without(self, excluded: Sequence[int]) -> EligibleSongs:
+        mask = self.mask
+        for song_id in excluded:
+            position = self.positions.get(song_id)
+            if position is not None:
+                mask &= ~(1 << position)
+        return EligibleSongs(self.ids, self.positions, mask)
+
+
 @dataclass
 class CatalogSnapshot:
     version: str
@@ -55,29 +105,77 @@ class CatalogSnapshot:
     genres: dict[int, str]
     countries: dict[int, str]
     artists: dict[int, str]
-    song_genres: dict[int, set[int]]
-    song_countries: dict[int, set[int]]
-    song_artists: dict[int, set[int]]
+    song_genres: dict[int, list[int]]
+    song_countries: dict[int, list[int]]
+    song_artists: dict[int, list[int]]
     browse_count: int
-    _facets: OrderedDict[tuple[object, ...], frozenset[int]] = field(default_factory=OrderedDict)
+    _facets: OrderedDict[tuple[object, ...], int] = field(default_factory=OrderedDict)
     _summaries: OrderedDict[tuple[object, ...], object] = field(default_factory=OrderedDict)
+
+    _ids: tuple[int, ...] = field(init=False, repr=False)
+    _positions: dict[int, int] = field(init=False, repr=False)
+    _all: int = field(init=False, repr=False)
+    _genre_masks: dict[str, int] = field(init=False, repr=False)
+    _country_masks: dict[str, int] = field(init=False, repr=False)
+    _artist_masks: dict[str, int] = field(init=False, repr=False)
+    _year_masks: dict[int, int] = field(init=False, repr=False)
+    _score_masks: dict[int, int] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._ids = tuple(sorted(self.songs))
+        self._positions = {song_id: index for index, song_id in enumerate(self._ids)}
+        self._all = (1 << len(self._ids)) - 1
+        byte_count = (len(self._ids) + 7) // 8
+
+        def relation_masks(relations, names):
+            buffers: dict[str, bytearray] = {}
+            for song_id, dimension_ids in relations.items():
+                position = self._positions[song_id]
+                byte_index, bit_index = divmod(position, 8)
+                bit = 1 << bit_index
+                for dimension_id in dimension_ids:
+                    name = names[dimension_id]
+                    buffer = buffers.get(name)
+                    if buffer is None:
+                        buffer = buffers[name] = bytearray(byte_count)
+                    buffer[byte_index] |= bit
+            return {name: int.from_bytes(buffer, "little") for name, buffer in buffers.items()}
+
+        self._genre_masks = relation_masks(self.song_genres, self.genres)
+        self._country_masks = relation_masks(self.song_countries, self.countries)
+        self._artist_masks = relation_masks(self.song_artists, self.artists)
+        years: dict[int, bytearray] = {}
+        scores: dict[int, bytearray] = {}
+        for position, song_id in enumerate(self._ids):
+            byte_index, bit_index = divmod(position, 8)
+            bit = 1 << bit_index
+            year, score = self.songs[song_id]
+            for value, buffers in ((year, years), (score, scores)):
+                buffer = buffers.get(value)
+                if buffer is None:
+                    buffer = buffers[value] = bytearray(byte_count)
+                buffer[byte_index] |= bit
+        self._year_masks = {year: int.from_bytes(years[year], "little") for year in sorted(years)}
+        self._score_masks = {
+            score: int.from_bytes(scores[score], "little") for score in sorted(scores)
+        }
 
     @classmethod
     def from_payload(cls, payload: str, version: str) -> CatalogSnapshot:
         data = json.loads(payload)
 
-        def relations(name: str) -> dict[int, set[int]]:
-            result: dict[int, set[int]] = {}
+        def relations(name: str) -> dict[int, list[int]]:
+            result: dict[int, list[int]] = {}
             for song_id, dimension_id in data[name]:
-                result.setdefault(int(song_id), set()).add(int(dimension_id))
+                result.setdefault(song_id, []).append(dimension_id)
             return result
 
         return cls(
             version=version,
-            songs={int(song_id): (int(year), int(score)) for song_id, year, score in data["songs"]},
-            genres={int(key): str(value) for key, value in data["genres"]},
-            countries={int(key): str(value) for key, value in data["countries"]},
-            artists={int(key): str(value) for key, value in data["artists"]},
+            songs={song_id: (year, score) for song_id, year, score in data["songs"]},
+            genres={key: value for key, value in data["genres"]},
+            countries={key: value for key, value in data["countries"]},
+            artists={key: value for key, value in data["artists"]},
             song_genres=relations("song_genres"),
             song_countries=relations("song_countries"),
             song_artists=relations("song_artists"),
@@ -99,60 +197,46 @@ class CatalogSnapshot:
             key += (request.popularity_min, request.popularity_max)
         return key
 
-    def _pool(self, request: FilterContextRequest | RoundRequest, stage: int) -> frozenset[int]:
+    @staticmethod
+    def _union(masks: dict[str, int], selected: tuple[str, ...]) -> int:
+        result = 0
+        for value in selected:
+            result |= masks.get(value, 0)
+        return result
+
+    @staticmethod
+    def _range(masks: dict[int, int], minimum: int | None, maximum: int | None) -> int:
+        result = 0
+        for value, mask in masks.items():
+            if (minimum is None or value >= minimum) and (maximum is None or value <= maximum):
+                result |= mask
+        return result
+
+    def _pool(self, request: FilterContextRequest | RoundRequest, stage: int) -> int:
         key = self._key(request, stage)
-        genres = set(key[1]) if stage >= 1 else set()
-        countries = set(key[2]) if stage >= 2 else set()
         if key in self._facets:
             self._facets.move_to_end(key)
             return self._facets[key]
         if stage:
-            previous = self._pool(request, stage - 1)
-            pool = set(previous)
+            pool = self._pool(request, stage - 1)
         else:
-            pool = set(self.songs)
-            if request.artist_id:
-                artist_ids = {a for a, value in self.artists.items() if value == request.artist_id}
-                pool.intersection_update(
-                    s for s, ids in self.song_artists.items() if ids.intersection(artist_ids)
-                )
-        if stage == 1 and genres:
-            genre_ids = {g for g, name in self.genres.items() if name in genres}
-            pool.intersection_update(
-                s for s, ids in self.song_genres.items() if ids.intersection(genre_ids)
-            )
-        if stage == 2 and countries:
-            country_ids = {c for c, code in self.countries.items() if code in countries}
-            pool.intersection_update(
-                s for s, ids in self.song_countries.items() if ids.intersection(country_ids)
-            )
-        if stage == 3:
-            pool = {
-                s
-                for s in pool
-                if (request.year_min is None or self.songs[s][0] >= request.year_min)
-                and (request.year_max is None or self.songs[s][0] <= request.year_max)
-            }
-        if stage == 4:
-            pool = {
-                s
-                for s in pool
-                if (request.popularity_min is None or self.songs[s][1] >= request.popularity_min)
-                and (request.popularity_max is None or self.songs[s][1] <= request.popularity_max)
-            }
-        result = frozenset(pool)
-        if stage and result == previous:
-            result = previous
-        self._facets[key] = result
-        while (
-            len(self._facets) > 128
-            or sum(
-                len(pool) for pool in {id(value): value for value in self._facets.values()}.values()
-            )
-            > 50_000
+            pool = self._artist_masks.get(request.artist_id, 0) if request.artist_id else self._all
+        if stage == 1 and key[1]:
+            pool &= self._union(self._genre_masks, key[1])
+        elif stage == 2 and key[2]:
+            pool &= self._union(self._country_masks, key[2])
+        elif stage == 3 and (request.year_min is not None or request.year_max is not None):
+            pool &= self._range(self._year_masks, request.year_min, request.year_max)
+        elif stage == 4 and (
+            request.popularity_min is not None or request.popularity_max is not None
         ):
+            pool &= self._range(self._score_masks, request.popularity_min, request.popularity_max)
+        self._facets[key] = pool
+        # Every entry holds at most ceil(catalog_size / 8) bytes, independent of
+        # how many songs match. Bound entries without rescanning cached pools.
+        while len(self._facets) > 128:
             self._facets.popitem(last=False)
-        return result
+        return pool
 
     def _summary(self, request: FilterContextRequest, stage: int):
         key = (stage, *self._key(request, stage))
@@ -162,27 +246,29 @@ class CatalogSnapshot:
         pool = self._pool(request, stage)
         if stage == 0:
             result = sorted(
-                {self.genres[g] for s in pool for g in self.song_genres.get(s, ())}, key=str.lower
+                (name for name, mask in self._genre_masks.items() if pool & mask), key=str.lower
             )
         elif stage == 1:
-            result = sorted(
-                {self.countries[c] for s in pool for c in self.song_countries.get(s, ())}
-            )
+            result = sorted(name for name, mask in self._country_masks.items() if pool & mask)
         elif stage in (2, 3):
-            values = [self.songs[s][stage - 2] for s in pool]
-            result = (min(values, default=None), max(values, default=None))
+            buckets = self._year_masks if stage == 2 else self._score_masks
+            values = [value for value, mask in buckets.items() if pool & mask]
+            result = (values[0], values[-1]) if values else (None, None)
         else:
-            result = len(pool)
+            result = pool.bit_count()
         self._summaries[key] = result
         while len(self._summaries) > 128:
             self._summaries.popitem(last=False)
         return result
 
+    def eligible_pool(self, request: RoundRequest, exclude: bool = False) -> EligibleSongs:
+        pool = EligibleSongs(self._ids, self._positions, self._pool(request, 4))
+        return pool.without(request.exclude_ids) if exclude else pool
+
     def eligible_ids(self, request: RoundRequest, exclude: bool = False) -> list[int]:
-        pool = self._pool(request, 4)
-        if exclude:
-            pool = pool.difference(request.exclude_ids)
-        return sorted(pool)
+        # Compatibility for offline callers. Worker round selection uses the
+        # indexable bitmap directly rather than allocating all matching IDs.
+        return list(self.eligible_pool(request, exclude))
 
     def filter_metadata(self, request: FilterContextRequest | None = None) -> FilterMetadata:
         context = request or FilterContextRequest()

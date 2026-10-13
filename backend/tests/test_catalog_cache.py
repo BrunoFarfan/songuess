@@ -131,10 +131,10 @@ def test_random_browse_pages_share_ids_and_use_primary_key_reads(catalog) -> Non
     assert database.catalog_cache.rows <= database.catalog_cache.max_rows
 
 
-def test_random_browse_reuses_warm_filter_snapshot_without_scanning_ids(catalog) -> None:
+def test_random_browse_reuses_warm_context_snapshot_without_scanning_ids(catalog) -> None:
     binding = LocalD1(catalog)
     database = D1Database(binding)
-    asyncio.run(get_filter_metadata_async(database))
+    asyncio.run(get_contextual_filter_metadata_async(database, FilterContextRequest()))
     assert len(binding.calls) == 1
     assert "catalog_runtime" in binding.calls[0]
     results, total = asyncio.run(search_songs_async(database, "", 4, seed=17))
@@ -150,7 +150,7 @@ def test_random_browse_falls_back_to_ids_when_snapshot_omits_missing_popularity(
     catalog.executescript(SNAPSHOT_REFRESH_SQL)
     binding = LocalD1(catalog)
     database = D1Database(binding)
-    asyncio.run(get_filter_metadata_async(database))
+    asyncio.run(get_contextual_filter_metadata_async(database, FilterContextRequest()))
     results, total = asyncio.run(search_songs_async(database, "", 4, seed=17))
     assert {song.id for song in results} == {1, 2, 3, 4}
     assert next(song for song in results if song.id == 4).popularity_score is None
@@ -337,8 +337,23 @@ def test_snapshot_matches_sql_filters_and_shares_one_read_across_requests(catalo
         assert asyncio.run(get_contextual_filter_metadata_async(remote, request)) == asyncio.run(
             get_contextual_filter_metadata_async(local, request)
         )
+    assert len(binding.calls) == 2
+    assert sum("SELECT version, payload" in sql for sql in binding.calls) == 1
+
+
+def test_initial_metadata_does_not_decode_full_relation_snapshot(catalog, monkeypatch) -> None:
+    from app.catalog_snapshot import CatalogSnapshot
+
+    def unexpected_decode(*_args, **_kwargs):
+        raise AssertionError("Initial filters must not decode the full catalog snapshot")
+
+    monkeypatch.setattr(CatalogSnapshot, "from_payload", unexpected_decode)
+    binding = LocalD1(catalog)
+    database = D1Database(binding)
+    first = asyncio.run(get_filter_metadata_async(database))
+    assert first.song_count == 4
+    assert asyncio.run(get_filter_metadata_async(database)) == first
     assert len(binding.calls) == 1
-    assert "catalog_runtime" in binding.calls[0]
 
 
 def test_round_refreshes_stale_snapshot_and_revalidates_live_filters(catalog, monkeypatch) -> None:
@@ -421,3 +436,46 @@ def test_worker_cache_loads_in_the_request_task_and_cancellation_allows_retry() 
         assert len(tasks) == 2
 
     asyncio.run(scenario())
+
+
+def test_fuzzy_search_bounds_edit_matching_and_keeps_all_candidate_pages(monkeypatch) -> None:
+    from app import repository
+
+    rows = [
+        {
+            "id": index,
+            "tier": 4,
+            "popularity_score": 0,
+            "normalized_title": f"candidate {index}",
+            "normalized_artist": "same artist",
+            "normalized_album": "same album",
+            "normalized_year": "2000",
+        }
+        for index in range(500)
+    ]
+    calls = []
+
+    async def candidates(database, query, limit):
+        assert limit == 500
+        return rows
+
+    def similarity(query, value):
+        calls.append(value)
+        return 0.0
+
+    monkeypatch.setattr(repository, "_song_candidates", candidates)
+    monkeypatch.setattr(repository, "_fuzzy_similarity", similarity)
+    result = asyncio.run(repository._ranked_search_rows_async(object(), "typo"))
+    assert len(result) == 500
+    assert {row["id"] for row in result} == set(range(500))
+    assert len(calls) <= 40 * 5
+    assert len(calls) == len(set(calls))  # Shared artist/album scores are computed once.
+    assert [row["id"] for row in result[40:]] == list(range(40, 500))
+
+
+def test_seeded_browse_changes_order_between_seeds() -> None:
+    first = [_permuted_browse_index(index, 10_617, 17) for index in range(40)]
+    second = [_permuted_browse_index(index, 10_617, 18) for index in range(40)]
+    assert first != second
+    assert len(set(first)) == 40
+    assert first == [_permuted_browse_index(index, 10_617, 17) for index in range(40)]

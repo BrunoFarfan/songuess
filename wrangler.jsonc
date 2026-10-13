@@ -1,8 +1,11 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "songuess-preview",
-  "main": "./backend/src/worker.mjs",
-  "compatibility_date": "2026-08-27",
+  "main": "./backend/src/worker.py",
+  "base_dir": "./backend/src",
+  "find_additional_modules": true,
+  "compatibility_date": "2026-09-08",
+  "compatibility_flags": ["python_workers"],
   "assets": {
     "directory": "./frontend/dist",
     "binding": "ASSETS",
