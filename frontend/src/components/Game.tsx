@@ -1456,12 +1456,17 @@ export default function Game() {
       ) : phase === "setup" || phase === "loading" ? (
         <>
           <div className="menu-setup-flow" hidden={room.mode === "details"}>
-            <SetupNavigation
-              label={room.mode === "solo" ? "Solo · Pick your mix" : "Multiplayer · Pick your mix"}
-              onBack={room.mode === "solo" ? room.home : room.multiplayer}
-              disabled={phase === "loading" || room.pending}
-            />
             <SetupWizard
+              onExit={room.mode === "solo" ? room.home : room.multiplayer}
+              renderNavigation={(onBack) => (
+                <SetupNavigation
+                  label={
+                    room.mode === "solo" ? "Solo · Pick your mix" : "Multiplayer · Pick your mix"
+                  }
+                  onBack={onBack}
+                  disabled={phase === "loading" || room.pending}
+                />
+              )}
               filters={draftFilters}
               metadata={metadata}
               error={appError}

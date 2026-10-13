@@ -668,13 +668,70 @@
 .is-menu .challenge-room.is-standings .flow-heading p {
   display: none;
 }
-.is-menu .challenge-view-standings,
-.is-menu .challenge-standings-back {
+.challenge-listening-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem 1rem;
+}
+.challenge-listening-actions .challenge-join {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.35rem 0.6rem;
+}
+.challenge-listening-actions .challenge-join label {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.challenge-listening-actions .flow-primary {
+  margin: 0;
+}
+.challenge-room-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
   margin-top: 0.6rem;
 }
+.is-menu .challenge-room-footer button {
+  margin: 0;
+  padding-inline: 0.7rem;
+  font-size: 0.7rem;
+}
+.is-menu .challenge-room.is-standings .challenge-invite {
+  margin-block: 0.4rem;
+}
+@media (max-height: 700px) {
+  .is-menu .challenge-room .flow-heading h1 {
+    font-size: clamp(1.5rem, 4.8dvh, 2.1rem);
+  }
+  .is-menu .challenge-room .challenge-invite label,
+  .is-menu .challenge-room .challenge-join label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .is-menu .challenge-room .challenge-join {
+    margin-block: 0.35rem;
+  }
+}
 @media (max-height: 540px) and (min-width: 520px) {
-  .is-menu .challenge-view-standings,
-  .is-menu .challenge-standings-back {
+  .is-menu .challenge-room-footer {
     grid-column: 1;
+  }
+  .is-menu .challenge-room .challenge-mix-panel {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .is-menu .challenge-room .challenge-standings {
+    grid-column: 2;
+    grid-row: 1 / span 3;
   }
 }
