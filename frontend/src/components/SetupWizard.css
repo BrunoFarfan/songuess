@@ -1957,3 +1957,6 @@
 .is-menu .view-choose .setup-preset-list strong {
   font-size: clamp(0.75rem, 2.1dvh, 1rem);
 }
+.view-review.is-preset .setup-review-actions {
+  grid-template-columns: minmax(0, 1fr);
+}

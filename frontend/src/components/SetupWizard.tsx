@@ -1,6 +1,7 @@
 import {
   type CSSProperties,
   type RefObject,
+  type ReactNode,
   useEffect,
   useId,
   useMemo,
@@ -44,6 +45,8 @@ export interface SetupFilterMetadata {
 }
 
 export interface SetupWizardProps {
+  onExit?: () => void;
+  renderNavigation?: (onBack: () => void) => ReactNode;
   filters: SetupFilters;
   metadata: SetupFilterMetadata | null;
   onChange: (filters: SetupFilters) => void;
@@ -134,6 +137,8 @@ export const SETUP_PRESETS: readonly SetupPreset[] = [
 type WizardView = "choose" | "custom" | "review";
 
 export default function SetupWizard({
+  onExit,
+  renderNavigation,
   filters,
   metadata,
   onChange,
@@ -252,205 +257,221 @@ export default function SetupWizard({
   const currentStepIsDefault = isStepDefault(filters, currentStep, availableDefaults);
 
   return (
-    <section
-      className={`setup-wizard view-${view}${view === "custom" ? ` step-${currentStep}` : ""}`}
-      aria-labelledby={headingId}
-      aria-busy={loading}
-    >
-      <header className="setup-wizard-header">
-        <span className="setup-wizard-kicker">Select a pressing</span>
-        <h1 id={headingId}>
-          {view === "choose"
-            ? "Pick your mix."
-            : view === "review"
-              ? (presetTitle ?? "Your custom mix")
-              : stepTitle(currentStep)}
-        </h1>
-        {view === "custom" && (
-          <p>
-            {stepIndex + 1} / {STEPS.length}
+    <>
+      {renderNavigation?.(view === "review" && selectedPreset ? leaveReview : () => onExit?.())}
+      <section
+        className={`setup-wizard view-${view}${view === "custom" ? ` step-${currentStep}` : ""}${selectedPreset ? " is-preset" : ""}`}
+        aria-labelledby={headingId}
+        aria-busy={loading}
+      >
+        <header className="setup-wizard-header">
+          <span className="setup-wizard-kicker">Select a pressing</span>
+          <h1 id={headingId}>
+            {view === "choose"
+              ? "Pick your mix."
+              : view === "review"
+                ? (presetTitle ?? "Your custom mix")
+                : stepTitle(currentStep)}
+          </h1>
+          {view === "custom" && (
+            <p>
+              {stepIndex + 1} / {STEPS.length}
+            </p>
+          )}
+        </header>
+
+        {metadata?.song_count === 0 && !error && (
+          <p className="setup-wizard-notice">The catalog is empty.</p>
+        )}
+        {error && (
+          <p className="setup-wizard-error" role="alert">
+            {error}
           </p>
         )}
-      </header>
 
-      {metadata?.song_count === 0 && !error && (
-        <p className="setup-wizard-notice">The catalog is empty.</p>
-      )}
-      {error && (
-        <p className="setup-wizard-error" role="alert">
-          {error}
-        </p>
-      )}
+        {view === "choose" && (
+          <div className="setup-wizard-chooser">
+            <button className="setup-custom-choice" type="button" onClick={chooseCustom}>
+              <span aria-hidden="true">00</span>
+              <strong>Custom</strong>
+              <b aria-hidden="true">↗</b>
+            </button>
+            <ol className="setup-preset-list">
+              {SETUP_PRESETS.map((preset, index) => (
+                <li key={preset.id}>
+                  <button type="button" onClick={() => choosePreset(preset)}>
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    <strong>{preset.title}</strong>
+                    <b aria-hidden="true">→</b>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
 
-      {view === "choose" && (
-        <div className="setup-wizard-chooser">
-          <button className="setup-custom-choice" type="button" onClick={chooseCustom}>
-            <span aria-hidden="true">00</span>
-            <strong>Custom</strong>
-            <b aria-hidden="true">↗</b>
-          </button>
-          <ol className="setup-preset-list">
-            {SETUP_PRESETS.map((preset, index) => (
-              <li key={preset.id}>
-                <button type="button" onClick={() => choosePreset(preset)}>
-                  <span>{String(index + 1).padStart(2, "0")}</span>
-                  <strong>{preset.title}</strong>
-                  <b aria-hidden="true">→</b>
-                </button>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
+        {view === "custom" && (
+          <div className="setup-wizard-step" key={currentStep}>
+            <nav className="setup-step-meter" aria-label="Setup progress">
+              {STEPS.map((step, index) => (
+                <span
+                  key={step}
+                  className={
+                    index === stepIndex ? "is-current" : index < stepIndex ? "is-done" : ""
+                  }
+                  aria-current={index === stepIndex ? "step" : undefined}
+                />
+              ))}
+            </nav>
 
-      {view === "custom" && (
-        <div className="setup-wizard-step" key={currentStep}>
-          <nav className="setup-step-meter" aria-label="Setup progress">
-            {STEPS.map((step, index) => (
-              <span
-                key={step}
-                className={index === stepIndex ? "is-current" : index < stepIndex ? "is-done" : ""}
-                aria-current={index === stepIndex ? "step" : undefined}
+            {currentStep === "artist" && (
+              <ArtistStep
+                artist={filters.artist}
+                endpoint={artistSearchEndpoint}
+                onChange={(artist) =>
+                  onChange(clearDownstreamFilters({ ...filters, artist }, "artist", defaults))
+                }
               />
-            ))}
-          </nav>
-
-          {currentStep === "artist" && (
-            <ArtistStep
-              artist={filters.artist}
-              endpoint={artistSearchEndpoint}
-              onChange={(artist) =>
-                onChange(clearDownstreamFilters({ ...filters, artist }, "artist", defaults))
-              }
-            />
-          )}
-          {currentStep === "genre" && (
-            <OptionStep
-              label="genres"
-              options={available?.genres ?? []}
-              selected={filters.genres}
-              onChange={(genres) =>
-                onChange(clearDownstreamFilters({ ...filters, genres }, "genre", defaults))
-              }
-            />
-          )}
-          {currentStep === "country" && (
-            <OptionStep
-              label="countries"
-              options={available?.countries ?? []}
-              selected={filters.countries}
-              formatOption={countryDisplay}
-              onChange={(countries) =>
-                onChange(clearDownstreamFilters({ ...filters, countries }, "country", defaults))
-              }
-            />
-          )}
-          {currentStep === "year" && (
-            <RangeStep
-              label="Release year"
-              min={available?.year_min ?? defaults.yearMin}
-              max={available?.year_max ?? defaults.yearMax}
-              low={filters.yearMin}
-              high={filters.yearMax}
-              onChange={(yearMin, yearMax) =>
-                onChange(clearDownstreamFilters({ ...filters, yearMin, yearMax }, "year", defaults))
-              }
-            />
-          )}
-          {currentStep === "popularity" && (
-            <RangeStep
-              label="Popularity"
-              min={defaults.popularityMin}
-              max={defaults.popularityMax}
-              low={filters.popularityMin}
-              high={filters.popularityMax}
-              onChange={(popularityMin, popularityMax) =>
-                onChange({ ...filters, popularityMin, popularityMax })
-              }
-            />
-          )}
-
-          <div className="setup-step-actions">
-            <button className="setup-back-action" type="button" aria-label="Back" onClick={goBack}>
-              <span aria-hidden="true">←</span>
-            </button>
-            {!currentStepIsDefault && (
-              <button
-                className="setup-skip-action"
-                type="button"
-                aria-label={`Clear ${stepTitle(currentStep).toLocaleLowerCase()}`}
-                onClick={() => onChange(resetStep(filters, currentStep, availableDefaults))}
-              >
-                <span aria-hidden="true">↺</span>
-              </button>
             )}
-            <button className="setup-continue-action" type="button" onClick={continueFromStep}>
-              {currentStepIsDefault ? anyLabel(currentStep) : "Continue"} →
-            </button>
-          </div>
-        </div>
-      )}
+            {currentStep === "genre" && (
+              <OptionStep
+                label="genres"
+                options={available?.genres ?? []}
+                selected={filters.genres}
+                onChange={(genres) =>
+                  onChange(clearDownstreamFilters({ ...filters, genres }, "genre", defaults))
+                }
+              />
+            )}
+            {currentStep === "country" && (
+              <OptionStep
+                label="countries"
+                options={available?.countries ?? []}
+                selected={filters.countries}
+                formatOption={countryDisplay}
+                onChange={(countries) =>
+                  onChange(clearDownstreamFilters({ ...filters, countries }, "country", defaults))
+                }
+              />
+            )}
+            {currentStep === "year" && (
+              <RangeStep
+                label="Release year"
+                min={available?.year_min ?? defaults.yearMin}
+                max={available?.year_max ?? defaults.yearMax}
+                low={filters.yearMin}
+                high={filters.yearMax}
+                onChange={(yearMin, yearMax) =>
+                  onChange(
+                    clearDownstreamFilters({ ...filters, yearMin, yearMax }, "year", defaults),
+                  )
+                }
+              />
+            )}
+            {currentStep === "popularity" && (
+              <RangeStep
+                label="Popularity"
+                min={defaults.popularityMin}
+                max={defaults.popularityMax}
+                low={filters.popularityMin}
+                high={filters.popularityMax}
+                onChange={(popularityMin, popularityMax) =>
+                  onChange({ ...filters, popularityMin, popularityMax })
+                }
+              />
+            )}
 
-      {view === "review" && (
-        <div className="setup-wizard-review">
-          <p className="setup-review-count" aria-live="polite">
-            {contextIsCurrent && contextMetadata ? formatSongCount(contextMetadata.song_count) : ""}
-          </p>
-          <dl>
-            <SummaryRow label="Artist" value={filters.artist?.name ?? "Any artist"} />
-            <SummaryRow
-              label="Genre"
-              value={filters.genres.length ? selectionSummary(filters.genres) : "Any genre"}
-            />
-            <SummaryRow
-              label="Country"
-              value={
-                filters.countries.length
-                  ? selectionSummary(filters.countries.map(countryDisplay))
-                  : "Any country"
-              }
-            />
-            <SummaryRow
-              label="Year"
-              value={rangeSummary(
-                filters.yearMin,
-                filters.yearMax,
-                availableDefaults.yearMin,
-                availableDefaults.yearMax,
+            <div className="setup-step-actions">
+              <button
+                className="setup-back-action"
+                type="button"
+                aria-label="Back"
+                onClick={goBack}
+              >
+                <span aria-hidden="true">←</span>
+              </button>
+              {!currentStepIsDefault && (
+                <button
+                  className="setup-skip-action"
+                  type="button"
+                  aria-label={`Clear ${stepTitle(currentStep).toLocaleLowerCase()}`}
+                  onClick={() => onChange(resetStep(filters, currentStep, availableDefaults))}
+                >
+                  <span aria-hidden="true">↺</span>
+                </button>
               )}
-            />
-            <SummaryRow
-              label="Popularity"
-              value={rangeSummary(
-                filters.popularityMin,
-                filters.popularityMax,
-                availableDefaults.popularityMin,
-                availableDefaults.popularityMax,
-              )}
-            />
-          </dl>
-          <div className="setup-review-actions">
-            <button
-              className="setup-back-action"
-              type="button"
-              aria-label="Back"
-              onClick={leaveReview}
-            >
-              <span aria-hidden="true">←</span>
-            </button>
-            <button
-              className="setup-start-action"
-              type="button"
-              disabled={loading || !contextIsCurrent || available?.song_count === 0}
-              onClick={() => onStart(filters)}
-            >
-              <span>{loading ? "Cueing…" : startLabel}</span>
-              <b aria-hidden="true">▶</b>
-            </button>
+              <button className="setup-continue-action" type="button" onClick={continueFromStep}>
+                {currentStepIsDefault ? anyLabel(currentStep) : "Continue"} →
+              </button>
+            </div>
           </div>
-        </div>
-      )}
-    </section>
+        )}
+
+        {view === "review" && (
+          <div className="setup-wizard-review">
+            <p className="setup-review-count" aria-live="polite">
+              {contextIsCurrent && contextMetadata
+                ? formatSongCount(contextMetadata.song_count)
+                : ""}
+            </p>
+            <dl>
+              <SummaryRow label="Artist" value={filters.artist?.name ?? "Any artist"} />
+              <SummaryRow
+                label="Genre"
+                value={filters.genres.length ? selectionSummary(filters.genres) : "Any genre"}
+              />
+              <SummaryRow
+                label="Country"
+                value={
+                  filters.countries.length
+                    ? selectionSummary(filters.countries.map(countryDisplay))
+                    : "Any country"
+                }
+              />
+              <SummaryRow
+                label="Year"
+                value={rangeSummary(
+                  filters.yearMin,
+                  filters.yearMax,
+                  availableDefaults.yearMin,
+                  availableDefaults.yearMax,
+                )}
+              />
+              <SummaryRow
+                label="Popularity"
+                value={rangeSummary(
+                  filters.popularityMin,
+                  filters.popularityMax,
+                  availableDefaults.popularityMin,
+                  availableDefaults.popularityMax,
+                )}
+              />
+            </dl>
+            <div className="setup-review-actions">
+              {!selectedPreset && (
+                <button
+                  className="setup-back-action"
+                  type="button"
+                  aria-label="Back"
+                  onClick={leaveReview}
+                >
+                  <span aria-hidden="true">←</span>
+                </button>
+              )}
+              <button
+                className="setup-start-action"
+                type="button"
+                disabled={loading || !contextIsCurrent || available?.song_count === 0}
+                onClick={() => onStart(filters)}
+              >
+                <span>{loading ? "Cueing…" : startLabel}</span>
+                <b aria-hidden="true">▶</b>
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+    </>
   );
 }
 

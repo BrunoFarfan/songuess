@@ -4,7 +4,6 @@ import type { RoomController } from "./useRoom";
 import "./ChallengeRoom.css";
 export default function ChallengeRoom({ room }: { room: RoomController }) {
   const [copiedAt, setCopiedAt] = useState<number | null>(null);
-  const [panel, setPanel] = useState<"mix" | "standings">("mix");
   const [playerPage, setPlayerPage] = useState(0);
   const [playerPageSize, setPlayerPageSize] = useState(1);
   const sectionRef = useRef<HTMLElement>(null);
@@ -30,7 +29,7 @@ export default function ChallengeRoom({ room }: { room: RoomController }) {
   }, [copiedAt]);
   const summary = room.summary;
   useEffect(() => {
-    if (panel !== "standings" || !summary?.leaderboard.length) return;
+    if (!summary?.leaderboard.length) return;
     const section = sectionRef.current;
     const list = playerListRef.current;
     const shell = section?.closest<HTMLElement>(".game-shell");
@@ -58,7 +57,16 @@ export default function ChallengeRoom({ room }: { room: RoomController }) {
         brand.getBoundingClientRect().height +
         (Number.parseFloat(brandStyle.marginTop) || 0) +
         (Number.parseFloat(brandStyle.marginBottom) || 0);
-      const overhead = section.getBoundingClientRect().height - list.getBoundingClientRect().height;
+      const standings = list.parentElement!;
+      const sectionStyle = getComputedStyle(section);
+      const overhead =
+        sectionStyle.display === "grid"
+          ? standings.getBoundingClientRect().top -
+            section.getBoundingClientRect().top +
+            standings.getBoundingClientRect().height -
+            list.getBoundingClientRect().height +
+            (Number.parseFloat(sectionStyle.paddingBottom) || 0)
+          : section.scrollHeight - list.getBoundingClientRect().height;
       const details = list.querySelector<HTMLElement>(
         '.challenge-player-details[aria-hidden="false"]',
       );
@@ -89,20 +97,13 @@ export default function ChallengeRoom({ room }: { room: RoomController }) {
       observer.disconnect();
       window.removeEventListener("resize", fitPlayers);
     };
-  }, [panel, summary?.leaderboard, expandedPlayer, playerPage, songPage, songPageSize]);
+  }, [summary?.leaderboard, expandedPlayer, playerPage, songPage, songPageSize]);
 
   const complete = room.state && !room.state.current_round;
-  function showMyResults() {
-    const index = summary?.leaderboard.findIndex((entry) => entry.is_you) ?? -1;
-    setPanel("standings");
-    setPlayerPage(Math.floor(Math.max(0, index) / playerPageSize) * playerPageSize);
-    setSongPage(0);
-    setExpandedPlayer(summary?.leaderboard[index]?.player_id ?? null);
-  }
   return (
     <section
       ref={sectionRef}
-      className={`challenge-room${panel === "standings" ? " is-standings" : ""}`}
+      className="challenge-room is-standings"
       aria-labelledby="challenge-heading"
     >
       <header className="flow-heading">
@@ -134,16 +135,7 @@ export default function ChallengeRoom({ room }: { room: RoomController }) {
         </>
       ) : (
         <>
-          {panel === "standings" && (
-            <button
-              className="challenge-standings-back"
-              type="button"
-              onClick={() => setPanel("mix")}
-            >
-              ← Back to challenge
-            </button>
-          )}
-          <div hidden={panel !== "mix"} className="challenge-mix-panel">
+          <div className="challenge-mix-panel">
             <div className="challenge-facts">
               <strong>
                 {summary.song_count} {summary.song_count === 1 ? "song" : "songs"}
@@ -188,72 +180,52 @@ export default function ChallengeRoom({ room }: { room: RoomController }) {
                 {copiedAt !== null ? "Copied" : "Copy link"}
               </button>
             </div>
-            {room.state && (
-              <p>
-                Your record: <strong>{room.state.total_points} points</strong> ·{" "}
-                {room.state.completed_count} / {summary.song_count} songs
-              </p>
-            )}
-            {summary.status === "closed" ? (
-              <>
+            <div className="challenge-listening-actions">
+              {room.state && (
                 <p>
-                  Play has ended. Standings remain available until{" "}
-                  {new Date(summary.delete_at).toLocaleDateString()}.
+                  Your record: <strong>{room.state.total_points} points</strong> ·{" "}
+                  {room.state.completed_count} / {summary.song_count} songs
                 </p>
-                {summary.is_member && (
-                  <button type="button" onClick={showMyResults}>
-                    View my results
-                  </button>
-                )}
-              </>
-            ) : summary.is_member ? (
-              <button
-                className="flow-primary"
-                type="button"
-                disabled={room.pending}
-                onClick={complete ? showMyResults : () => void room.resume()}
-              >
-                {complete ? "View my results" : room.pending ? "Loading…" : "Start listening"}
-              </button>
-            ) : summary.participant_count >= 50 ? (
-              <p>This challenge is full.</p>
-            ) : (
-              <form
-                className="challenge-join"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void room.join();
-                }}
-              >
-                <label htmlFor="challenge-name">Your name</label>
-                <input
-                  id="challenge-name"
-                  value={room.name}
-                  maxLength={24}
-                  required
-                  onChange={(event) => room.setName(event.target.value)}
-                  autoComplete="nickname"
-                />
-                <button
-                  className="flow-primary"
-                  disabled={room.pending || !room.validName}
-                  type="submit"
+              )}
+              {summary.status === "closed" ? (
+                <>
+                  <p>
+                    Play has ended. Standings remain available until{" "}
+                    {new Date(summary.delete_at).toLocaleDateString()}.
+                  </p>
+                </>
+              ) : summary.is_member ? null : summary.participant_count >= 50 ? (
+                <p>This challenge is full.</p>
+              ) : (
+                <form
+                  className="challenge-join"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void room.join();
+                  }}
                 >
-                  {room.pending ? "Joining…" : "Join & play"}
-                </button>
-              </form>
-            )}
+                  <label htmlFor="challenge-name">Your name</label>
+                  <input
+                    id="challenge-name"
+                    placeholder="Your name"
+                    value={room.name}
+                    maxLength={24}
+                    required
+                    onChange={(event) => room.setName(event.target.value)}
+                    autoComplete="nickname"
+                  />
+                  <button
+                    className="flow-primary"
+                    disabled={room.pending || !room.validName}
+                    type="submit"
+                  >
+                    {room.pending ? "Joining…" : "Join & play"}
+                  </button>
+                </form>
+              )}
+            </div>
           </div>
-          {panel === "mix" && (
-            <button
-              className="challenge-view-standings"
-              type="button"
-              onClick={() => setPanel("standings")}
-            >
-              View standings →
-            </button>
-          )}
-          <div hidden={panel !== "standings"} className="challenge-standings">
+          <div className="challenge-standings">
             <div className="challenge-standings-heading">
               <h2>Standings</h2>
               <button type="button" onClick={() => void room.refresh()}>
@@ -413,9 +385,21 @@ export default function ChallengeRoom({ room }: { room: RoomController }) {
           </div>
         </>
       )}
-      <button className="challenge-home" type="button" onClick={room.multiplayer}>
-        ← Back to multiplayer
-      </button>
+      <div className="challenge-room-footer">
+        {summary?.status === "active" && summary.is_member && !complete && (
+          <button
+            className="flow-primary"
+            type="button"
+            disabled={room.pending}
+            onClick={() => void room.resume()}
+          >
+            {room.pending ? "Loading…" : "Start listening"}
+          </button>
+        )}
+        <button className="challenge-home" type="button" onClick={room.multiplayer}>
+          ← Back to multiplayer
+        </button>
+      </div>
     </section>
   );
 }
