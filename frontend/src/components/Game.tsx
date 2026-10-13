@@ -425,7 +425,10 @@ export default function Game() {
       const deckStyle = getComputedStyle(deck);
       const gap = Number.parseFloat(deckStyle.rowGap) || 0;
       const pointsRow = Number.parseFloat(deckStyle.gridTemplateRows) || points.offsetHeight;
-      const actionMargin = Number.parseFloat(getComputedStyle(actions).marginBottom) || 0;
+      const actionStyle = getComputedStyle(actions);
+      const actionMargin =
+        (Number.parseFloat(actionStyle.marginTop) || 0) +
+        (Number.parseFloat(actionStyle.marginBottom) || 0);
       const reserved =
         pointsRow +
         caption.getBoundingClientRect().height +
@@ -1497,8 +1500,17 @@ export default function Game() {
                       <div className="clue-status reveal-points-status">
                         <p
                           className="clue-readout outcome-readout"
-                          aria-label={`${pointsForResult(resultForRound(outcome ?? "failed", attempt))} points`}
+                          aria-label={`${outcome === "correct" ? "Correct" : outcome === "gave_up" ? "Revealed" : "Missed"}, ${pointsForResult(resultForRound(outcome ?? "failed", attempt))} points`}
                         >
+                          <span
+                            className={`outcome-readout__label${outcome === "correct" ? " is-correct" : ""}`}
+                          >
+                            {outcome === "correct"
+                              ? "Correct"
+                              : outcome === "gave_up"
+                                ? "Revealed"
+                                : "Missed"}
+                          </span>
                           <span className="outcome-readout__points">
                             {pointsForResult(resultForRound(outcome ?? "failed", attempt))} points
                           </span>
@@ -1546,7 +1558,7 @@ export default function Game() {
                       </button>
                       {phase !== "revealed" && (
                         <button
-                          className={`dock-play-action dock-side-action${isAudioPlaying ? " is-playing" : ""}`}
+                          className={`dock-play-action${isAudioPlaying ? " is-playing" : ""}`}
                           type="button"
                           onClick={() => {
                             if (isAudioPlaying) audioRef.current?.pause();
@@ -1563,6 +1575,18 @@ export default function Game() {
                               <path d="m8 5 11 7-11 7V5Z" />
                             </svg>
                           )}
+                        </button>
+                      )}
+                      {phase !== "revealed" && (
+                        <button
+                          disabled={isRoomPlaying && (room.pending || room.uncertain)}
+                          className="dock-side-action dock-skip"
+                          type="button"
+                          onClick={() =>
+                            advanceAttempt({ resumePlayback: true, preserveSearch: true })
+                          }
+                        >
+                          Next clue
                         </button>
                       )}
                       {phase === "revealed" && (

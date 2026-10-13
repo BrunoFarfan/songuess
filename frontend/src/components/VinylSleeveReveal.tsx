@@ -214,8 +214,6 @@ export default function VinylSleeveReveal({
 
       {revealed && (
         <div className="vinyl-sleeve-reveal__caption">
-          <span className="vinyl-sleeve-reveal__outcome">{outcomeLabel}</span>
-
           {loading && !song && (
             <p className="vinyl-sleeve-reveal__loading">Pulling the sleeve notes…</p>
           )}

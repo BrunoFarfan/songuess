@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { selectionSummary } from "./SetupWizard";
 import type { RoomController } from "./useRoom";
 import "./ChallengeRoom.css";
@@ -6,6 +6,11 @@ export default function ChallengeRoom({ room }: { room: RoomController }) {
   const [copiedAt, setCopiedAt] = useState<number | null>(null);
   const [panel, setPanel] = useState<"mix" | "standings">("mix");
   const [playerPage, setPlayerPage] = useState(0);
+  const [playerPageSize, setPlayerPageSize] = useState(1);
+  const sectionRef = useRef<HTMLElement>(null);
+  const playerListRef = useRef<HTMLOListElement>(null);
+  const rowHeightRef = useRef(0);
+  const viewportRef = useRef("");
   const [songPage, setSongPage] = useState(0);
   const [songPageSize, setSongPageSize] = useState(1);
   useEffect(() => {
@@ -24,16 +29,79 @@ export default function ChallengeRoom({ room }: { room: RoomController }) {
     return () => window.clearTimeout(timer);
   }, [copiedAt]);
   const summary = room.summary;
+  useEffect(() => {
+    if (panel !== "standings" || !summary?.leaderboard.length) return;
+    const section = sectionRef.current;
+    const list = playerListRef.current;
+    const shell = section?.closest<HTMLElement>(".game-shell");
+    const brand = shell?.querySelector<HTMLElement>(":scope > .brand-lockup");
+    if (!section || !list || !shell || !brand) return;
+    const fitPlayers = () => {
+      const viewport = `${window.innerWidth}:${window.innerHeight}`;
+      if (viewportRef.current !== viewport) {
+        viewportRef.current = viewport;
+        rowHeightRef.current = 0;
+      }
+      const rows = Array.from(list.children).map((element) => {
+        const toggle = element.querySelector<HTMLElement>(".challenge-player-toggle");
+        return (
+          (toggle?.getBoundingClientRect().height ?? 0) +
+          (Number.parseFloat(getComputedStyle(element).borderTopWidth) || 0)
+        );
+      });
+      // Keep the tallest measured row for this viewport so longer names cannot
+      // cause the page size to alternate as rows enter and leave the page.
+      rowHeightRef.current = Math.max(rowHeightRef.current, ...rows);
+      if (!rowHeightRef.current) return;
+      const brandStyle = getComputedStyle(brand);
+      const brandSpace =
+        brand.getBoundingClientRect().height +
+        (Number.parseFloat(brandStyle.marginTop) || 0) +
+        (Number.parseFloat(brandStyle.marginBottom) || 0);
+      const overhead = section.getBoundingClientRect().height - list.getBoundingClientRect().height;
+      const details = list.querySelector<HTMLElement>(
+        '.challenge-player-details[aria-hidden="false"]',
+      );
+      const available =
+        shell.clientHeight -
+        brandSpace -
+        overhead -
+        (details?.getBoundingClientRect().height ?? 0) -
+        4;
+      const size = Math.max(
+        1,
+        Math.min(summary.leaderboard.length, Math.floor(available / rowHeightRef.current)),
+      );
+      setPlayerPageSize(size);
+      setPlayerPage((current) => {
+        const selected = summary.leaderboard.findIndex(
+          (entry) => entry.player_id === expandedPlayer,
+        );
+        const anchor = Math.min(selected >= 0 ? selected : current, summary.leaderboard.length - 1);
+        return Math.floor(anchor / size) * size;
+      });
+    };
+    const observer = new ResizeObserver(fitPlayers);
+    [section, list, shell, brand].forEach((element) => observer.observe(element));
+    window.addEventListener("resize", fitPlayers);
+    fitPlayers();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", fitPlayers);
+    };
+  }, [panel, summary?.leaderboard, expandedPlayer, playerPage, songPage, songPageSize]);
+
   const complete = room.state && !room.state.current_round;
   function showMyResults() {
     const index = summary?.leaderboard.findIndex((entry) => entry.is_you) ?? -1;
     setPanel("standings");
-    setPlayerPage(Math.max(0, index));
+    setPlayerPage(Math.floor(Math.max(0, index) / playerPageSize) * playerPageSize);
     setSongPage(0);
     setExpandedPlayer(summary?.leaderboard[index]?.player_id ?? null);
   }
   return (
     <section
+      ref={sectionRef}
       className={`challenge-room${panel === "standings" ? " is-standings" : ""}`}
       aria-labelledby="challenge-heading"
     >
@@ -193,11 +261,11 @@ export default function ChallengeRoom({ room }: { room: RoomController }) {
               </button>
             </div>
             {summary.leaderboard.length ? (
-              <ol>
+              <ol ref={playerListRef}>
                 {summary.leaderboard
                   .slice(
                     Math.min(playerPage, summary.leaderboard.length - 1),
-                    Math.min(playerPage, summary.leaderboard.length - 1) + 1,
+                    Math.min(playerPage, summary.leaderboard.length - 1) + playerPageSize,
                   )
                   .map((entry) => {
                     const expanded = expandedPlayer === entry.player_id;
@@ -313,27 +381,28 @@ export default function ChallengeRoom({ room }: { room: RoomController }) {
             ) : (
               <p>No scores yet. The first record is yours to set.</p>
             )}
-            {summary.leaderboard.length > 1 && (
+            {summary.leaderboard.length > playerPageSize && (
               <nav className="challenge-pagination" aria-label="Standings pages">
                 <button
                   type="button"
                   disabled={playerPage === 0}
                   onClick={() => {
-                    setPlayerPage(playerPage - 1);
+                    setPlayerPage(Math.max(0, playerPage - playerPageSize));
                     setExpandedPlayer(null);
                   }}
                 >
                   ←
                 </button>
                 <span>
-                  {Math.min(playerPage + 1, summary.leaderboard.length)} /{" "}
+                  {playerPage + 1}–
+                  {Math.min(playerPage + playerPageSize, summary.leaderboard.length)} /{" "}
                   {summary.leaderboard.length} players
                 </span>
                 <button
                   type="button"
-                  disabled={playerPage + 1 >= summary.leaderboard.length}
+                  disabled={playerPage + playerPageSize >= summary.leaderboard.length}
                   onClick={() => {
-                    setPlayerPage(playerPage + 1);
+                    setPlayerPage(playerPage + playerPageSize);
                     setExpandedPlayer(null);
                   }}
                 >
