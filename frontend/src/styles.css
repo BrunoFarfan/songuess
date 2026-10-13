@@ -777,9 +777,13 @@ legend,
   animation: potential-point-spent 520ms cubic-bezier(0.22, 0.8, 0.25, 1) both;
 }
 .outcome-readout {
-  display: inline-block;
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.75rem;
 }
-.outcome-readout__points {
+.outcome-readout__points,
+.outcome-readout__label {
   color: var(--accent);
   font-family: "Fraunces Variable", serif;
   font-size: clamp(1.35rem, 4vw, 2rem);
@@ -788,6 +792,10 @@ legend,
   text-transform: uppercase;
   letter-spacing: 0.04em;
   text-shadow: 0.07em 0.07em 0 #120e0c;
+}
+.outcome-readout__label.is-correct,
+.outcome-readout__label.is-correct + .outcome-readout__points {
+  color: #83cbb5;
 }
 @keyframes potential-point-spent {
   0% {
