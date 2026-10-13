@@ -533,7 +533,7 @@
     min-height: 0;
     max-width: none;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 2.75rem auto auto;
+    grid-template-rows: minmax(2.75rem, auto) auto auto;
     gap: 0.5rem;
   }
   .is-round .phase-revealed .vinyl-control-deck > .reveal-points-status {
