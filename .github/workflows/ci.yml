@@ -17,6 +17,9 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           python-version: "3.13"
@@ -24,6 +27,7 @@ jobs:
       - run: uv sync --locked --dev
       - run: uv run ruff check src tests ../dataset
       - run: cd .. && uv run --project backend pytest backend/tests
+      - run: node --test tests/*.test.mjs
 
   frontend:
     runs-on: ubuntu-latest
@@ -81,9 +85,6 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-      - run: uv sync --project backend --locked --dev
-      - run: uv run pywrangler sync
-        working-directory: backend
       - run: pnpm install --dir frontend --frozen-lockfile
       - run: pnpm --dir frontend build
       - uses: cloudflare/wrangler-action@v4
@@ -121,9 +122,6 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-      - run: uv sync --project backend --locked --dev
-      - run: uv run pywrangler sync
-        working-directory: backend
       - run: pnpm install --dir frontend --frozen-lockfile
       - run: pnpm --dir frontend build
       - uses: cloudflare/wrangler-action@v4

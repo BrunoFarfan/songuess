@@ -1,12 +1,8 @@
 {
-  // pywrangler requires config and python_modules beside the uv project.
   // Keep deployment values in sync with ../wrangler.jsonc.
   "name": "songuess-preview",
-  "main": "./src/worker.py",
-  "base_dir": "./src",
-  "find_additional_modules": true,
+  "main": "./src/worker.mjs",
   "compatibility_date": "2026-08-27",
-  "compatibility_flags": ["python_workers"],
   "assets": {
     "directory": "../frontend/dist",
     "binding": "ASSETS",
