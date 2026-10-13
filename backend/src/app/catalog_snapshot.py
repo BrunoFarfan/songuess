@@ -55,9 +55,9 @@ class CatalogSnapshot:
     genres: dict[int, str]
     countries: dict[int, str]
     artists: dict[int, str]
-    song_genres: dict[int, set[int]]
-    song_countries: dict[int, set[int]]
-    song_artists: dict[int, set[int]]
+    song_genres: dict[int, list[int]]
+    song_countries: dict[int, list[int]]
+    song_artists: dict[int, list[int]]
     browse_count: int
     _facets: OrderedDict[tuple[object, ...], frozenset[int]] = field(default_factory=OrderedDict)
     _summaries: OrderedDict[tuple[object, ...], object] = field(default_factory=OrderedDict)
@@ -66,18 +66,18 @@ class CatalogSnapshot:
     def from_payload(cls, payload: str, version: str) -> CatalogSnapshot:
         data = json.loads(payload)
 
-        def relations(name: str) -> dict[int, set[int]]:
-            result: dict[int, set[int]] = {}
+        def relations(name: str) -> dict[int, list[int]]:
+            result: dict[int, list[int]] = {}
             for song_id, dimension_id in data[name]:
-                result.setdefault(int(song_id), set()).add(int(dimension_id))
+                result.setdefault(song_id, []).append(dimension_id)
             return result
 
         return cls(
             version=version,
-            songs={int(song_id): (int(year), int(score)) for song_id, year, score in data["songs"]},
-            genres={int(key): str(value) for key, value in data["genres"]},
-            countries={int(key): str(value) for key, value in data["countries"]},
-            artists={int(key): str(value) for key, value in data["artists"]},
+            songs={song_id: (year, score) for song_id, year, score in data["songs"]},
+            genres={key: value for key, value in data["genres"]},
+            countries={key: value for key, value in data["countries"]},
+            artists={key: value for key, value in data["artists"]},
             song_genres=relations("song_genres"),
             song_countries=relations("song_countries"),
             song_artists=relations("song_artists"),
@@ -108,23 +108,23 @@ class CatalogSnapshot:
             return self._facets[key]
         if stage:
             previous = self._pool(request, stage - 1)
-            pool = set(previous)
+            pool = previous
         else:
             pool = set(self.songs)
             if request.artist_id:
                 artist_ids = {a for a, value in self.artists.items() if value == request.artist_id}
                 pool.intersection_update(
-                    s for s, ids in self.song_artists.items() if ids.intersection(artist_ids)
+                    s for s, ids in self.song_artists.items() if any(a in artist_ids for a in ids)
                 )
         if stage == 1 and genres:
             genre_ids = {g for g, name in self.genres.items() if name in genres}
-            pool.intersection_update(
-                s for s, ids in self.song_genres.items() if ids.intersection(genre_ids)
+            pool = pool.intersection(
+                s for s, ids in self.song_genres.items() if any(g in genre_ids for g in ids)
             )
         if stage == 2 and countries:
             country_ids = {c for c, code in self.countries.items() if code in countries}
-            pool.intersection_update(
-                s for s, ids in self.song_countries.items() if ids.intersection(country_ids)
+            pool = pool.intersection(
+                s for s, ids in self.song_countries.items() if any(c in country_ids for c in ids)
             )
         if stage == 3:
             pool = {

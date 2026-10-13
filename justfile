@@ -21,11 +21,11 @@ build:
 
 # Apply all schema migrations to Wrangler's local D1 database.
 d1-migrate-local:
-  cd backend && npx --yes wrangler@4 d1 migrations apply songuess-local --local
+  cd backend && uv run pywrangler d1 migrations apply songuess-local --local
 
 # Import a generated application-only catalog into local D1.
 d1-import-local file:
-  cd backend && npx --yes wrangler@4 d1 execute songuess-local --local --file ../{{file}}
+  cd backend && uv run pywrangler d1 execute songuess-local --local --file ../{{file}}
 
 # Export the enabled application catalog and deterministic manifest.
 export-d1 output="release/catalog.sql":
@@ -33,7 +33,7 @@ export-d1 output="release/catalog.sql":
 
 # Run the complete Worker and static assets through workerd.
 worker-dev *args:
-  cd backend && npx --yes wrangler@4 dev {{args}}
+  cd backend && uv run pywrangler dev {{args}}
 
 # Remove expired challenge rooms and all their participant progress locally.
 rooms-cleanup:
@@ -42,4 +42,4 @@ rooms-cleanup:
 # Validate the Worker bundle without publishing it.
 worker-dry-run:
   cd frontend && just build
-  cd backend && npx --yes wrangler@4 deploy --dry-run --env ""
+  cd backend && uv run pywrangler deploy --dry-run --env ""

@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Response
 
 from app.database import Database, initialize_database, request_database
 from app.models import (
@@ -42,7 +42,10 @@ app.include_router(rooms_router)
 
 
 @app.get("/api/health")
-async def health() -> dict[str, str]:
+async def health(response: Response) -> dict[str, str]:
+    response.headers["X-Songuess-Python-Version"] = (
+        f"{sys.version_info.major}.{sys.version_info.minor}"
+    )
     return {"status": "ok"}
 
 

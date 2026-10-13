@@ -11,11 +11,6 @@ lint:
 # Run all backend and importer tests.
 test:
   cd .. && uv run --project backend pytest backend/tests
-  just worker-test
-
-# Verify the native production Worker API independently of Python.
-worker-test:
-  node --test tests/*.test.mjs
 
 # Start the FastAPI development server.
 dev:

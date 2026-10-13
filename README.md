@@ -302,24 +302,22 @@ algorithm or acceptance rules.
 
 ## Cloudflare Worker deployment
 
-Production uses a native JavaScript Worker in `backend/src/worker.mjs`, with the request's `env.DB`
-D1 binding. All other requests are served directly from `frontend/dist` by Workers Static Assets.
-This avoids Python runtime initialization races and keeps catalog filtering and ranking within
-the Workers Free CPU budget. Local Uvicorn development continues to use the Python FastAPI backend
-and `backend/data/songuess.sqlite3`. Native API tests and the Python tests run in CI.
+Production uses one Python Worker. Requests under `/api/*` run through FastAPI and the request's
+`env.DB` D1 binding; all other requests are served directly from `frontend/dist` by Workers Static
+Assets. Local Uvicorn development continues to use `backend/data/songuess.sqlite3` through the same
+async repository contract.
 
-The runtime search tables in migration `012_runtime_search.sql` return at most 500 FTS5 candidates
-for bounded application ranking. Migration `013_catalog_browse_order.sql` adds a covering index so empty-query
-browsing traverses catalog order without sorting the full catalog for each page. Pages near the
-end scan the same index backward and reverse the results into ascending order, avoiding a large
-forward offset. Catalog pages beyond the first are loaded when the player navigates.
-The native API preserves exact, prefix, and substring match priorities and uses linear bigram
-similarity for fuzzy tie ordering. Seeded browsing uses an integer Feistel permutation; each seed
-remains stable and pages do not overlap, but its ordering differs from the Python development API.
+The runtime search tables in migration `012_runtime_search.sql` select at most 500 FTS5 candidates
+using `ORDER BY rank`. SQL computes exact/prefix/substring/token priorities from indexed normalized
+fields; Python reranks at most 40 fuzzy candidates with memoized field similarities. This retains
+typo matching while bounding CPU work. Fuzzy ties can differ from the old full-pool ranking.
+Seeded browsing uses a cached compact ID array and a coprime arithmetic permutation; pages stay
+stable and disjoint without repeated cryptographic hashing. Catalog pages load on navigation.
 
 Migration `014_runtime_catalog.sql` backfills a versioned, compact catalog snapshot into the
-single `catalog_runtime` row. D1 caches this row for each Worker isolate cache window; global filter
-metadata, browse totals, contextual facets, and eligible round IDs then use the snapshot without
+single `catalog_runtime` row. Initial metadata projects only its small facet lists and reads the
+two indexed year endpoints, avoiding full snapshot decoding. D1 caches the full snapshot for each
+Worker isolate cache window; browse totals, contextual facets, and eligible round IDs use it without
 catalog scans. Each round applies recent-song exclusions in memory, chooses uniformly at random,
 and fetches only the selected preview by primary key. Facets cache only their actual upstream
 dependencies, with at most 128 entries and 50,000 retained memberships.
@@ -342,8 +340,9 @@ revealed; carousel tail pages are no longer fetched speculatively.
 Install the locked dependencies, build the frontend, migrate local D1, and start the real Workers
 runtime:
 
-Use Node.js 22 LTS for the native Worker. Python 3.13 and `uv` remain required for the local backend
-and dataset tools.
+Use Python 3.14, `uv` 0.12.3 or newer, and Node.js 22 LTS for the Python Workers toolchain.
+The compatibility date must be `2026-09-08` or later to select the Python 3.14 runtime with upstream
+memory-leak fixes. The Worker tooling and Pydantic locks include compatible CPython 3.14 WASM wheels.
 
 ```bash
 cd backend
@@ -389,9 +388,9 @@ For subsequent catalog releases:
 4. Compare D1 table counts with the generated manifest, deploy preview, and complete the gameplay
    and audio smoke tests before approving production.
 
-The root Wrangler file documents the complete deployment; CI deploys from the backend mirror.
-Keep their deployment values in sync. Worker deployment uses Wrangler directly without Python
-module generation.
+The root Wrangler file documents the complete deployment; the backend mirror is required because
+`pywrangler` resolves its project beside `backend/pyproject.toml`. Keep their deployment values in
+sync.
 
 Ordinary Worker deployment never migrates or replaces catalog data. `staging` is the default
 integration branch: every push runs backend and frontend checks, then deploys the preview Worker.

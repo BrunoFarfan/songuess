@@ -4,7 +4,8 @@ import secrets
 import sqlite3
 from array import array
 from difflib import SequenceMatcher
-from hashlib import blake2s
+from functools import lru_cache
+from math import gcd
 
 from app.catalog_cache import cache_catalog
 from app.catalog_snapshot import CatalogSnapshot
@@ -140,26 +141,59 @@ def _trigram_match_query(query: str) -> str:
 
 
 async def _song_candidates(database: Database, query: str, candidate_limit: int) -> list[Row]:
-    columns = "s.id, s.title, s.artist, s.album, s.release_year, s.artwork_url, s.popularity_score"
+    # Keep FTS's indexed rank/limit inside a materialized pool. All subsequent
+    # ranking touches at most 500 rows, never the entire catalog.
     compact = query.replace(" ", "")
+    fields = (
+        "ss.normalized_title_compact",
+        "ss.normalized_artist_compact",
+        "ss.normalized_album_compact",
+        "ss.normalized_year",
+    )
+    parameters: list[object]
     if len(compact) < 3:
-        prefix = f"{compact}%"
-        return await database.fetch_all(
-            f"SELECT {columns} FROM songs s JOIN ("
+        pool = (
+            "SELECT song_id, 0 AS relevance FROM ("
             "SELECT song_id FROM song_search WHERE normalized_title_compact LIKE ? "
             "UNION SELECT song_id FROM song_search WHERE normalized_artist_compact LIKE ? "
             "UNION SELECT song_id FROM song_search WHERE normalized_album_compact LIKE ?"
-            ") candidates ON candidates.song_id = s.id "
-            "WHERE s.enabled = 1 AND s.preview_url <> '' LIMIT ?",
-            [prefix, prefix, prefix, candidate_limit],
+            ") LIMIT ?"
         )
+        parameters = [f"{compact}%"] * 3 + [candidate_limit]
+    else:
+        pool = (
+            "SELECT CAST(f.song_id AS INTEGER) AS song_id, f.rank AS relevance "
+            "FROM song_search_fts f WHERE song_search_fts MATCH ? "
+            "ORDER BY f.rank LIMIT ?"
+        )
+        parameters = [_trigram_match_query(query), candidate_limit]
 
+    exact = " OR ".join(f"{field} = ?" for field in fields)
+    prefix = " OR ".join(f"{field} LIKE ?" for field in fields)
+    substring = " OR ".join(f"instr({field}, ?) > 0" for field in fields)
+    tokens = " AND ".join("instr(ss.normalized_text, ?) > 0" for _ in query.split())
+    tier = f"CASE WHEN {exact} THEN 0 WHEN {prefix} THEN 1 WHEN {substring} THEN 2 "
+    tier += f"WHEN {tokens} THEN 3 ELSE 4 END"
+    priority = (
+        "CASE "
+        + " ".join(f"WHEN {field} = ? THEN {index}" for index, field in enumerate(fields))
+        + " ELSE 4 END"
+    )
+    parameters += [compact] * 4 + [f"{compact}%"] * 4 + [compact] * 4
+    parameters += query.split() + [compact] * 4
     return await database.fetch_all(
-        f"SELECT {columns} FROM song_search_fts f "
-        "JOIN songs s ON s.id = CAST(f.song_id AS INTEGER) "
-        "WHERE song_search_fts MATCH ? AND s.enabled = 1 AND s.preview_url <> '' "
-        "ORDER BY f.rank LIMIT ?",
-        [_trigram_match_query(query), candidate_limit],
+        "WITH candidates AS MATERIALIZED (" + pool + "), ranked AS ("
+        "SELECT s.id, s.title, s.artist, s.album, s.release_year, s.artwork_url, "
+        "s.popularity_score, ss.normalized_title, ss.normalized_artist, "
+        f"ss.normalized_album, ss.normalized_year, c.relevance, "
+        f"{tier} AS tier, {priority} AS priority "
+        "FROM candidates c JOIN songs s ON s.id = c.song_id "
+        "JOIN song_search ss ON ss.song_id = s.id "
+        "WHERE s.enabled = 1 AND s.preview_url <> '') "
+        "SELECT * FROM ranked ORDER BY tier, priority, "
+        "CASE WHEN tier >= 3 THEN relevance ELSE 0 END, "
+        "COALESCE(popularity_score, 0) DESC, normalized_title, normalized_artist, id",
+        parameters,
     )
 
 
@@ -178,80 +212,69 @@ async def _browse_ids_async(database: Database) -> array:
     return array("q", (int(row["id"]) for row in rows))
 
 
-def _permuted_browse_index(index: int, total: int, seed: int) -> int:
-    """Permute one position without creating a shuffled catalog per client.
+@lru_cache(maxsize=128)
+def _browse_permutation(total: int, seed: int) -> tuple[int, int]:
+    # Mix once per catalog/seed, then choose an invertible affine permutation.
+    # A coprime step visits every ID exactly once without hashing or cycle walks.
+    mixed = (seed ^ 0x9E3779B9) & 0xFFFFFFFF
+    mixed = ((mixed ^ (mixed >> 16)) * 0x85EBCA6B) & 0xFFFFFFFF
+    mixed = ((mixed ^ (mixed >> 13)) * 0xC2B2AE35) & 0xFFFFFFFF
+    mixed ^= mixed >> 16
+    step = mixed % total or 1
+    while gcd(step, total) != 1:
+        step = (step + 1) % total or 1
+    return step, ((mixed >> 16) ^ seed) % total
 
-    A six-round keyed Feistel network is a bijection on a power-of-four domain.
-    Cycle walking restricts that bijection to the catalog's actual length. The
-    domain is less than four times the length, keeping average work per position
-    constant while preserving complete, non-overlapping pages for every seed.
-    """
+
+def _permuted_browse_index(index: int, total: int, seed: int) -> int:
+    """Return a stable, seeded bijection without building a shuffled catalog."""
     if total <= 1:
         return index
-    half_bits = ((total - 1).bit_length() + 1) // 2
-    mask = (1 << half_bits) - 1
-    key = str(seed).encode("ascii")
-    position = index
-    while True:
-        left, right = position >> half_bits, position & mask
-        for round_number in range(6):
-            digest = blake2s(
-                f"{round_number}:{right}".encode("ascii"), key=key, digest_size=8
-            ).digest()
-            left, right = right, left ^ (int.from_bytes(digest, "little") & mask)
-        position = (left << half_bits) | right
-        if position < total:
-            return position
-
-
-def _song_search_rank(row: Row, query: str) -> tuple[object, ...]:
-    query_compact = query.replace(" ", "")
-    title = _normalize_search_text(row["title"])
-    artist = _normalize_search_text(row["artist"])
-    album = _normalize_search_text(row["album"])
-    year = str(row["release_year"])
-    primary_fields = (title, artist, album, year)
-    primary_compact = tuple(field.replace(" ", "") for field in primary_fields)
-    field_priority = next(
-        (index for index, field in enumerate(primary_compact) if field == query_compact),
-        len(primary_fields),
-    )
-
-    if query_compact in primary_compact:
-        tier = 0
-    elif any(field.startswith(query_compact) for field in primary_compact):
-        tier = 1
-    elif any(query_compact in field for field in primary_compact):
-        tier = 2
-    else:
-        combined = " ".join(field for field in primary_fields if field)
-        query_tokens = query.split()
-        tier = 3 if query_tokens and all(token in combined for token in query_tokens) else 4
-
-    fuzzy_candidates = primary_compact
-    combined_compact = "".join(primary_compact)
-    fuzzy_score = max(
-        (_fuzzy_similarity(query_compact, candidate) for candidate in fuzzy_candidates),
-        default=0.0,
-    )
-    fuzzy_score = max(fuzzy_score, _fuzzy_similarity(query_compact, combined_compact))
-
-    return (
-        tier,
-        field_priority,
-        -fuzzy_score,
-        -int(row["popularity_score"] or 0),
-        title,
-        artist,
-        int(row["id"]),
-    )
+    step, start = _browse_permutation(total, seed)
+    return (start + index * step) % total
 
 
 @cache_catalog(row_count=len)
 async def _ranked_search_rows_async(database: Database, query: str) -> list[Row]:
     # Rank a bounded candidate pool once, then reuse it for stable pages.
     rows = await _song_candidates(database, query, 500)
-    return sorted(rows, key=lambda row: _song_search_rank(row, query))
+    # Fuzzy matching is limited to the strongest 40 indexed candidates. Reuse
+    # field scores (artists/albums recur) and stored normalized values; never
+    # normalize or run edit matching for all 500 returned candidate documents.
+    fuzzy = [row for row in rows if row["tier"] == 4][:40]
+    scores: dict[str, float] = {}
+    compact = query.replace(" ", "")
+
+    def rank(row: Row) -> tuple[object, ...]:
+        fields = tuple(
+            row[name].replace(" ", "")
+            for name in (
+                "normalized_title",
+                "normalized_artist",
+                "normalized_album",
+                "normalized_year",
+            )
+        )
+        best = 0.0
+        for value in (*fields, "".join(fields)):
+            if value not in scores:
+                scores[value] = _fuzzy_similarity(compact, value)
+            best = max(best, scores[value])
+        return (
+            -best,
+            -int(row["popularity_score"] or 0),
+            row["normalized_title"],
+            row["normalized_artist"],
+            int(row["id"]),
+        )
+
+    ranked_fuzzy = sorted(fuzzy, key=rank)
+    fuzzy_ids = {int(row["id"]) for row in fuzzy}
+    # Insert reranked fuzzy candidates at their original tier boundary; weaker
+    # FTS candidates remain available on subsequent stable pages.
+    strong = [row for row in rows if row["tier"] < 4]
+    remaining = [row for row in rows if row["tier"] == 4 and int(row["id"]) not in fuzzy_ids]
+    return [*strong, *ranked_fuzzy, *remaining]
 
 
 @cache_catalog(row_count=lambda result: len(result[0]) + 1)
@@ -455,8 +478,28 @@ async def get_song_async(database: Database, song_id: int) -> SongReveal | None:
 @cache_catalog()
 async def get_filter_metadata_async(database: Database) -> FilterMetadata:
     if isinstance(database, D1Database):
-        return FilterMetadata.model_validate(
-            (await _catalog_snapshot_async(database)).filter_metadata()
+        # The initial page needs only small facets, not the full relation snapshot.
+        # Indexed year endpoints cost one row each; JSON projections read one row.
+        row = await database.fetch_one(
+            "SELECT json_extract(payload, '$.genres') AS genres, "
+            "json_extract(payload, '$.countries') AS countries, "
+            "(SELECT release_year FROM songs WHERE enabled = 1 AND preview_url <> '' "
+            "AND popularity_score IS NOT NULL ORDER BY release_year LIMIT 1) AS year_min, "
+            "(SELECT release_year FROM songs WHERE enabled = 1 AND preview_url <> '' "
+            "AND popularity_score IS NOT NULL ORDER BY release_year DESC LIMIT 1) AS year_max, "
+            "json_array_length(payload, '$.songs') AS song_count "
+            "FROM catalog_runtime WHERE id = 1"
+        )
+        if row is None:
+            raise RuntimeError("Catalog snapshot missing; apply migration 014")
+        return FilterMetadata(
+            genres=sorted((name for _, name in json.loads(row["genres"])), key=str.casefold),
+            countries=sorted(code for _, code in json.loads(row["countries"])),
+            year_min=row["year_min"],
+            year_max=row["year_max"],
+            popularity_min=0,
+            popularity_max=100,
+            song_count=row["song_count"],
         )
     summary = await database.fetch_one(
         "SELECT MIN(release_year) AS year_min, MAX(release_year) AS year_max, "
