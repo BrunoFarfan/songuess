@@ -18,6 +18,7 @@ import {
   type PersonalStats,
 } from "../lib/roundHistory";
 import { PrefetchCache } from "../lib/prefetchCache";
+import { loadCatalogFilters, type FilterMetadata } from "../lib/catalogFilters";
 import AlbumGuessBrowser from "./AlbumGuessBrowser";
 import SetupWizard, { type ArtistOption, type SetupFilters } from "./SetupWizard";
 import Tutorial, { hasSeenTutorial } from "./Tutorial";
@@ -89,16 +90,6 @@ type Filters = {
   yearMax: number;
   popularityMin: number;
   popularityMax: number;
-};
-
-type FilterMetadata = {
-  genres: string[];
-  countries: string[];
-  year_min: number | null;
-  year_max: number | null;
-  popularity_min: number;
-  popularity_max: number;
-  song_count: number;
 };
 
 export type RoundResponse = {
@@ -501,10 +492,9 @@ export default function Game() {
     const controller = new AbortController();
     async function loadFilters() {
       try {
-        const response = await fetch("/api/filters", { signal: controller.signal });
-        if (!response.ok) throw new Error("Could not load the catalog filters.");
-        const data = (await response.json()) as FilterMetadata;
+        const data = await loadCatalogFilters(controller.signal);
         setMetadata(data);
+        setAppError("");
         const nextFilters: Filters = {
           genres: [],
           countries: [],
@@ -516,9 +506,9 @@ export default function Game() {
         };
         setDraftFilters(nextFilters);
         setActiveFilters(nextFilters);
-      } catch (error) {
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setAppError("The API is not available yet. Start the backend and try again.");
+      } catch {
+        if (!controller.signal.aborted) {
+          setAppError("The catalog could not load. Please reload to try again.");
         }
       }
     }

@@ -39,9 +39,6 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-      - run: uv sync --project backend --locked --dev
-      - run: uv run pywrangler sync
-        working-directory: backend
       - run: pnpm install --dir frontend --frozen-lockfile
       - run: pnpm --dir frontend build
       - uses: cloudflare/wrangler-action@v4
