@@ -88,7 +88,7 @@ async def _catalog_snapshot_async(database: Database) -> CatalogSnapshot:
 async def choose_round_async(database: Database, request: RoundRequest) -> RoundResponse | None:
     if isinstance(database, D1Database):
         snapshot = await _catalog_snapshot_async(database)
-        available = snapshot.eligible_ids(request, exclude=True)
+        available = snapshot.eligible_pool(request, exclude=True)
         clauses, parameters = _round_filter(request.model_copy(update={"exclude_ids": []}))
         for attempt in range(3):
             if not available:
@@ -106,8 +106,8 @@ async def choose_round_async(database: Database, request: RoundRequest) -> Round
             if attempt == 0:
                 database.catalog_cache.clear()
                 snapshot = await _catalog_snapshot_async(database)
-                available = snapshot.eligible_ids(request, exclude=True)
-            available = [candidate for candidate in available if candidate != song_id]
+                available = snapshot.eligible_pool(request, exclude=True)
+            available = available.without((song_id,))
         return None
 
     clauses, parameters = _round_filter(request)

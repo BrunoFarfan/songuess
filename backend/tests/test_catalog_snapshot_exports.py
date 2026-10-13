@@ -149,3 +149,73 @@ def test_progressive_facets_ignore_later_selections_and_bound_cache() -> None:
     )
     assert snapshot.eligible_ids(round_request) == [1, 2]
     assert snapshot.eligible_ids(round_request, exclude=True) == [2]
+
+
+def test_bitmap_round_pool_indexes_sparse_ids_and_exclusions_uniformly() -> None:
+    import pytest
+
+    from app.catalog_snapshot import EligibleSongs
+
+    ids = tuple(index * 7 + 3 for index in range(137))
+    positions = {song_id: position for position, song_id in enumerate(ids)}
+    for selected in ([], [0], [136], [0, 5, 63, 64, 128, 136], list(range(137))):
+        pool = EligibleSongs(ids, positions, sum(1 << index for index in selected))
+        expected = [ids[index] for index in selected]
+        assert list(pool) == expected
+        assert len(pool) == len(expected)
+        assert [pool[index] for index in range(len(pool))] == expected
+        assert [pool[index - len(pool)] for index in range(len(pool))] == expected
+        with pytest.raises(IndexError):
+            _ = pool[len(pool)]
+        excluded = [ids[5], ids[128], ids[5], -1]
+        reduced = pool.without(excluded)
+        assert list(reduced) == [song_id for song_id in expected if song_id not in excluded]
+
+
+def test_warm_bitmap_context_never_walks_song_or_relation_rows() -> None:
+    class NoSongScan(dict):
+        def __iter__(self):
+            raise AssertionError("Warm facets must use bitmaps")
+
+        def items(self):
+            raise AssertionError("Warm facets must use bitmaps")
+
+        def __getitem__(self, key):
+            raise AssertionError("Warm facets must use bitmaps")
+
+    snapshot = CatalogSnapshot.from_payload(
+        json.dumps(
+            {
+                "songs": [[index, 1900 + index % 100, index % 101] for index in range(1, 5001)],
+                "genres": [[1, "rock"], [2, "pop"]],
+                "countries": [[1, "US"], [2, "GB"]],
+                "artists": [[1, "artist"]],
+                "song_genres": [[index, 1 if index % 2 else 2] for index in range(1, 5001)],
+                "song_countries": [[index, 1 if index % 3 else 2] for index in range(1, 5001)],
+                "song_artists": [[index, 1] for index in range(1, 5001)],
+                "browse_count": 5000,
+            }
+        ),
+        "bitmap",
+    )
+    snapshot.songs = NoSongScan(snapshot.songs)
+    snapshot.song_genres = NoSongScan(snapshot.song_genres)
+    snapshot.song_countries = NoSongScan(snapshot.song_countries)
+    snapshot.song_artists = NoSongScan(snapshot.song_artists)
+    for year in range(1900, 2000):
+        request = FilterContextRequest(
+            artist_id="artist",
+            genres=["rock"],
+            countries=["US"],
+            year_min=year,
+            popularity_min=20,
+            popularity_max=80,
+        )
+        result = snapshot.filter_metadata(request)
+        expected = sum(
+            index % 2 and index % 3 and 1900 + index % 100 >= year and 20 <= index % 101 <= 80
+            for index in range(1, 5001)
+        )
+        assert result.song_count == expected
+    assert len(snapshot._facets) <= 128
+    assert len(snapshot._summaries) <= 128

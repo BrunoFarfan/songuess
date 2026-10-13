@@ -320,7 +320,8 @@ two indexed year endpoints, avoiding full snapshot decoding. D1 caches the full 
 Worker isolate cache window; browse totals, contextual facets, and eligible round IDs use it without
 catalog scans. Each round applies recent-song exclusions in memory, chooses uniformly at random,
 and fetches only the selected preview by primary key. Facets cache only their actual upstream
-dependencies, with at most 128 entries and 50,000 retained memberships.
+dependencies in at most 128 integer bitmasks. Year/popularity buckets and facet intersections use
+C integer operations instead of scanning matching song IDs for each slider value.
 
 The result cache holds at most 128 entries and 30,000 result rows for five minutes. Worker cache
 misses load in the requesting task so binding I/O remains within that request's lifetime;
