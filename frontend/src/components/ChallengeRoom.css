@@ -490,18 +490,6 @@
     height: 4rem;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .play-entry button,
-  .challenge-room button,
-  .challenge-game-bar button {
-    transition: none;
-  }
-  .challenge-player-details,
-  .challenge-player-chevron {
-    transition: none;
-  }
-}
-
 /* Menu compositions use the space left by the brand, including short screens. */
 .is-menu .play-entry,
 .is-menu .challenge-room {

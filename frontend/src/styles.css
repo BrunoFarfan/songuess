@@ -862,11 +862,6 @@ legend,
 .vinyl-progress.is-spinning .vinyl-disc {
   animation-play-state: running;
 }
-@media (prefers-reduced-motion: reduce) {
-  .vinyl-progress .vinyl-disc {
-    animation: none;
-  }
-}
 .vinyl-progress-ring {
   position: absolute;
   inset: 0;
@@ -2565,11 +2560,6 @@ main:has(.game-shell.is-playing) {
   }
   to {
     transform: translateX(0);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .game-drawer[open] {
-    animation: none;
   }
 }
 @media (max-height: 500px) and (min-aspect-ratio: 1/1) {

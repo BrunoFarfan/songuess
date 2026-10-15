@@ -561,19 +561,6 @@
     0 -1rem 2rem rgba(0, 0, 0, 0.3);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .album-guess-item,
-  .album-guess-cover,
-  .album-guess-arrow {
-    transition: none;
-  }
-
-  .album-guess-deal,
-  .album-guess-loading-disc {
-    animation: none;
-  }
-}
-
 /* Show one renderer from the first visible frame, including on slow devices. */
 .album-guess-browser.is-scene-pending .album-guess-item {
   visibility: hidden;

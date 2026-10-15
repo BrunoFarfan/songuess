@@ -63,6 +63,14 @@ export default function VinylSleeveReveal({
   const [revealSettled, setRevealSettled] = useState(false);
   const [Scene, setScene] = useState<typeof import("./VinylRevealScene").default | null>(null);
   const [sceneReady, setSceneReady] = useState(false);
+  const [sceneFailed, setSceneFailed] = useState(false);
+  const [failedArtworkUrl, setFailedArtworkUrl] = useState<string | null | undefined>(undefined);
+  const handleSceneFailure = useCallback((url?: string | null) => {
+    if (url === undefined) {
+      setSceneFailed(true);
+      setReturning(false);
+    } else setFailedArtworkUrl(url);
+  }, []);
   const [readyArtworkUrl, setReadyArtworkUrl] = useState<string | null | undefined>(undefined);
   const handleSceneReady = useCallback((ready: boolean, url?: string | null) => {
     setSceneReady(ready);
@@ -86,7 +94,9 @@ export default function VinylSleeveReveal({
       .then(({ default: component }) => {
         if (!cancelled) setScene(() => component);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setSceneFailed(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -99,20 +109,23 @@ export default function VinylSleeveReveal({
       setRevealSettled(false);
       return;
     }
-    if (!song || revealMode) return;
+    if (!song) return;
+    if (sceneFailed || failedArtworkUrl === artworkUrl) {
+      if (revealMode !== "css") {
+        setRevealStartedAt(performance.now());
+        setRevealMode("css");
+      }
+      return;
+    }
+    if (revealMode) return;
     if (coverReady) {
       setRevealStartedAt(performance.now());
       setRevealMode("3d");
       return;
     }
-    // Keep the current vinyl visible while preparing the new reveal. If WebGL
-    // or artwork fails, choose CSS once and never replace it midway through.
-    const fallback = window.setTimeout(() => {
-      setRevealStartedAt(performance.now());
-      setRevealMode("css");
-    }, 3000);
-    return () => window.clearTimeout(fallback);
-  }, [revealed, !!song, coverReady, revealMode]);
+    // Keep the current vinyl visible until the full scene is ready. Only an
+    // actual loading or rendering failure selects the CSS reveal.
+  }, [revealed, !!song, coverReady, revealMode, sceneFailed, failedArtworkUrl, artworkUrl]);
 
   useEffect(() => {
     if (!revealed) return;
@@ -168,6 +181,7 @@ export default function VinylSleeveReveal({
             onReturning={setReturning}
             onRevealComplete={handleRevealComplete}
             onReady={handleSceneReady}
+            onFailure={handleSceneFailure}
             onVinylReady={setVinylReady}
           />
         )}

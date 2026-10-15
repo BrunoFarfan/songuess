@@ -70,7 +70,11 @@ are centered. Rotate the vinyl around local Z. Artwork fills the front square;
 textures applied with Three.js must use `flipY = false` and sRGB color space.
 The models export without cameras, lights, or animation clips. The reference
 animation is editable in Blender; the website implements its motion in TS so it
-can respond to game state, reduced motion preferences, and viewport size.
+can respond to game state and viewport size while preserving the same authored
+motion and timing for every user. Reduced-motion and reduced-data preferences do
+not change the presentation. Slow model downloads must complete rather than trigger
+a timed downgrade to a simplified scene; only actual loading/rendering failures
+use error recovery. See the [visual experience policy](../docs/visual-experience.md).
 Rapid navigation accelerates the current gesture and combines pending input
 into the latest requested position, avoiding repeated mid-gesture restarts.
 

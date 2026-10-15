@@ -218,7 +218,13 @@ keeps its rotation through the reveal, and follows playback afterward. The revea
 the current album artwork and follows the Blender reference using TypeScript.
 The carousel reuses the same sleeve model, folding old covers back and lifting
 the selected cover forward.
-Rotation pauses in hidden tabs and respects reduced motion preferences.
+Rotation pauses in hidden tabs. Every user receives the full 3D models, artwork,
+animations, transitions, and authored timing, even when assets take longer to load.
+Reduced-motion and reduced-data preferences are intentionally ignored for presentation.
+Do not introduce data-saving modes, device/connection-based visual tiers, or timed
+fallbacks that replace a still-loading 3D scene with a simplified renderer. Shared
+caching, preloading, responsive sizing, and actual failure recovery remain supported.
+See the [visual experience policy](docs/visual-experience.md) and [project instructions](AGENTS.md).
 
 ## Checks
 
