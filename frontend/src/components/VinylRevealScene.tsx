@@ -25,6 +25,7 @@ type Props = {
   onRevealComplete: () => void;
   onReady: (ready: boolean, artworkUrl?: string | null) => void;
   onVinylReady: (ready: boolean) => void;
+  onFailure: (artworkUrl?: string | null) => void;
 };
 
 /** Decorative scene. Round state, audio and accessible controls stay in the DOM. */
@@ -38,6 +39,7 @@ export default function VinylRevealScene({
   onRevealComplete,
   onReady,
   onVinylReady,
+  onFailure,
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef({ revealed, revealStartedAt, isPlaying, artworkUrl, revealRequested });
@@ -65,7 +67,6 @@ export default function VinylRevealScene({
     const textures = new Set<THREE.Texture>();
     const materials = new Set<THREE.Material>();
     const geometries = new Set<THREE.BufferGeometry>();
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-2, 2, 1.5, -1.5, 0.1, 30);
     camera.position.set(0, 0, 8);
@@ -94,6 +95,7 @@ export default function VinylRevealScene({
         powerPreference: "low-power",
       });
     } catch {
+      onFailure();
       return;
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -316,16 +318,14 @@ export default function VinylRevealScene({
           : playPose;
       let progress = 1;
       if (transition) {
-        progress = reducedMotion.matches
-          ? 1
-          : Math.min(
-              Math.max(
-                (now - transition.start) /
-                  (transition.kind === "reveal" ? REVEAL_DURATION : RETURN_DURATION),
-                0,
-              ),
-              1,
-            );
+        progress = Math.min(
+          Math.max(
+            (now - transition.start) /
+              (transition.kind === "reveal" ? REVEAL_DURATION : RETURN_DURATION),
+            0,
+          ),
+          1,
+        );
         const from = inCurrentLayout(transition.from, stageRect);
         pose =
           transition.kind === "reveal"
@@ -390,7 +390,7 @@ export default function VinylRevealScene({
       const revealing = revealReady && moving && now >= (transition?.start ?? 0);
       if (needleMotion.to !== needleTarget)
         needleMotion = { from: needleAmount, to: needleTarget, start: now };
-      const needleProgress = reducedMotion.matches ? 1 : smooth((now - needleMotion.start) / 420);
+      const needleProgress = smooth((now - needleMotion.start) / 420);
       needleAmount = needleMotion.from + (needleMotion.to - needleMotion.from) * needleProgress;
       const needleSnapshot = revealRequest?.from ?? transition?.from;
       const needlePose =
@@ -411,14 +411,11 @@ export default function VinylRevealScene({
       tonearm.visible = needleOpacity > 0;
       if (transition?.kind === "return") tonearm.visible = false;
       const turning = state.isPlaying || revealing;
-      const targetVelocity = turning && !reducedMotion.matches ? (Math.PI * 2) / 1.8 : 0;
-      if (reducedMotion.matches) angularVelocity = 0;
-      else {
-        angularVelocity +=
-          (targetVelocity - angularVelocity) * (1 - Math.exp(-dt / (turning ? 0.12 : 0.2)));
-        if (!turning && angularVelocity < 0.002) angularVelocity = 0;
-        vinyl.rotation.z = (vinyl.rotation.z - angularVelocity * dt) % (Math.PI * 2);
-      }
+      const targetVelocity = turning ? (Math.PI * 2) / 1.8 : 0;
+      angularVelocity +=
+        (targetVelocity - angularVelocity) * (1 - Math.exp(-dt / (turning ? 0.12 : 0.2)));
+      if (!turning && angularVelocity < 0.002) angularVelocity = 0;
+      vinyl.rotation.z = (vinyl.rotation.z - angularVelocity * dt) % (Math.PI * 2);
       // Studio reflections stay fixed while the pressing's actual wear rotates.
       for (const texture of reflectionTextures) {
         // glTF flips V, so matching the angle cancels rotation in world space.
@@ -443,13 +440,12 @@ export default function VinylRevealScene({
       previous = now;
       renderer.render(scene, camera);
       if (
-        !reducedMotion.matches &&
-        (state.isPlaying ||
-          moving ||
-          needleAmount !== needleTarget ||
-          (state.revealRequested && requestElapsed < revealLead) ||
-          angularVelocity > 0 ||
-          now < layoutUntilRef.current)
+        state.isPlaying ||
+        moving ||
+        needleAmount !== needleTarget ||
+        (state.revealRequested && requestElapsed < revealLead) ||
+        angularVelocity > 0 ||
+        now < layoutUntilRef.current
       )
         frame = requestAnimationFrame(render);
     }
@@ -470,12 +466,12 @@ export default function VinylRevealScene({
       ready = false;
       onReady(false);
       onVinylReady(false);
+      onFailure();
       cancelAnimationFrame(frame);
       frame = 0;
     }
     renderer.domElement.addEventListener("webglcontextlost", contextLost);
     document.addEventListener("visibilitychange", visibilityChanged);
-    reducedMotion.addEventListener("change", wake);
     const observer = new ResizeObserver(() => resize());
     observer.observe(host);
     observer.observe(host.parentElement!);
@@ -504,7 +500,10 @@ export default function VinylRevealScene({
       artworkReady = false;
       onReady(false);
       const artwork = sleeve.getObjectByName("SleeveArtwork");
-      if (!(artwork instanceof THREE.Mesh)) return;
+      if (!(artwork instanceof THREE.Mesh)) {
+        onFailure();
+        return;
+      }
       if (!url) {
         artworkReady = true;
         onReady(true, url);
@@ -546,7 +545,10 @@ export default function VinylRevealScene({
           wake();
         })
         .catch(() => {
-          if (!disposed && request === artworkRequest) onReady(false);
+          if (!disposed && request === artworkRequest) {
+            onReady(false);
+            onFailure(url);
+          }
         });
     }
     artworkRef.current = updateArtwork;
@@ -555,7 +557,11 @@ export default function VinylRevealScene({
         loadModel("/models/songuess/sleeve.glb"),
         loadModel("/models/songuess/vinyl.glb"),
       ]);
-      if (disposed || models.some((result) => result.status === "rejected")) return;
+      if (disposed) return;
+      if (models.some((result) => result.status === "rejected")) {
+        onFailure();
+        return;
+      }
       sleeve = (models[0] as PromiseFulfilledResult<THREE.Group>).value;
       vinyl = (models[1] as PromiseFulfilledResult<THREE.Group>).value;
       vinyl.traverse((object) => {
@@ -585,7 +591,10 @@ export default function VinylRevealScene({
       onVinylReady(true);
     }
     void initialize().catch(() => {
-      if (!disposed) onReady(false);
+      if (!disposed) {
+        onReady(false);
+        onFailure();
+      }
     });
     return () => {
       disposed = true;
@@ -596,7 +605,6 @@ export default function VinylRevealScene({
       window.removeEventListener("scroll", wake);
       window.removeEventListener("resize", wake);
       document.removeEventListener("visibilitychange", visibilityChanged);
-      reducedMotion.removeEventListener("change", wake);
       renderer.domElement.removeEventListener("webglcontextlost", contextLost);
       disposeResources();
       environment.dispose();
@@ -604,6 +612,6 @@ export default function VinylRevealScene({
       renderer.forceContextLoss();
       renderer.domElement.remove();
     };
-  }, [onReady, onVinylReady, onReturning, onRevealComplete]);
+  }, [onReady, onVinylReady, onReturning, onRevealComplete, onFailure]);
   return <div className="vinyl-sleeve-reveal__scene" ref={hostRef} aria-hidden="true" />;
 }

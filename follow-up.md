@@ -76,7 +76,7 @@ When a round ends because of a correct guess, exhausted attempts, or a confirmed
 
 Do not autoplay the full preview. Preserve the volume control and keep the page geometry as stable as practical, especially on mobile. Continue to show whether the outcome was **Correct**, **Missed**, or **Revealed**.
 
-If reveal data fails to load, retain a usable retry, next-song, or change-filter path rather than leaving the game stuck. When the user prefers reduced motion, replace the 3D flip and larger movements with a short crossfade.
+If reveal data fails to load, retain a usable retry, next-song, or change-filter path rather than leaving the game stuck. Every user gets the full 3D reveal and authored motion regardless of reduced-motion or data-saving preferences. Wait for slow assets instead of downgrading after a timeout. See the [visual experience policy](docs/visual-experience.md).
 
 ## 4. Raised buttons that press down
 
@@ -88,7 +88,7 @@ Apply a consistent physical-button interaction model across the interface:
 - On release, it returns quickly to its raised resting position.
 - Disabled buttons remain visually muted and do not animate as interactive controls.
 
-Use the same model for primary and secondary actions, circular dock controls, modal buttons, search results, chips, and the vinyl rewind button. Keep press feedback short—approximately 100–160 ms—and preserve visible keyboard focus, touch feedback, and reduced-motion behavior.
+Use the same model for primary and secondary actions, circular dock controls, modal buttons, search results, chips, and the vinyl rewind button. Keep press feedback short—approximately 100–160 ms—and preserve visible keyboard focus and touch feedback. Use the same authored animation for all users; do not add reduced-motion overrides.
 
 ## 5. Asynchronous multiplayer rooms
 

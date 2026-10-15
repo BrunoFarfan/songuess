@@ -7,6 +7,7 @@ export type CarouselSleeve = { index: number; offset: number; artworkUrl?: strin
 type Props = {
   sleeves: CarouselSleeve[];
   onReady: (ready: boolean) => void;
+  onFailure: () => void;
   onSettled?: () => void;
   motionSpeed?: number;
 };
@@ -70,6 +71,7 @@ function forwardClearance(a: THREE.Group, b: THREE.Group): number {
 export default function AlbumCarouselScene({
   sleeves,
   onReady,
+  onFailure,
   onSettled,
   motionSpeed = 1,
 }: Props) {
@@ -98,7 +100,6 @@ export default function AlbumCarouselScene({
     const geometries = new Set<THREE.BufferGeometry>();
     const materials = new Set<THREE.Material>();
     const textures = new Set<THREE.Texture>();
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-200, 200, 120, -120, 0.1, 2500);
     camera.position.set(0, 0, 1200);
@@ -109,6 +110,7 @@ export default function AlbumCarouselScene({
         powerPreference: "low-power",
       });
     } catch {
+      onFailure();
       return;
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -199,7 +201,10 @@ export default function AlbumCarouselScene({
           wake();
         })
         .catch(() => {
-          if (!disposed && request === record.request) wake();
+          if (!disposed && request === record.request && [...records.values()].includes(record)) {
+            onFailure();
+            wake();
+          }
         });
     }
     function beginGesture(record: RecordSleeve, target: number) {
@@ -230,7 +235,10 @@ export default function AlbumCarouselScene({
         if (!record) {
           const model = template.clone(true);
           const artwork = model.getObjectByName("SleeveArtwork");
-          if (!(artwork instanceof THREE.Mesh)) continue;
+          if (!(artwork instanceof THREE.Mesh)) {
+            onFailure();
+            continue;
+          }
           const material = new THREE.MeshStandardMaterial({
             roughness: 0.82,
             metalness: 0,
@@ -288,10 +296,9 @@ export default function AlbumCarouselScene({
         const returning = record.gesture === "return";
         const duration = inspecting ? 0.55 : returning ? 0.39 : 0.45;
         const delay = inspecting ? 0.425 : 0;
-        const t =
-          reducedMotion.matches || !record.fromPose
-            ? 1
-            : Math.max(0, Math.min((record.elapsed - delay) / duration, 1));
+        const t = !record.fromPose
+          ? 1
+          : Math.max(0, Math.min((record.elapsed - delay) / duration, 1));
         record.offset = mix(record.fromOffset, record.target, smooth(t));
         if (t < 1) moving = true;
         const depth = Math.abs(record.target);
@@ -397,7 +404,7 @@ export default function AlbumCarouselScene({
       renderer.render(scene, camera);
       const active = stateRef.current.find(({ offset }) => offset === 0);
       notifyReady(active !== undefined && records.get(active.index)?.loaded === true);
-      if (moving && !reducedMotion.matches) frame = requestAnimationFrame(render);
+      if (moving) frame = requestAnimationFrame(render);
       else if (navigating) {
         navigating = false;
         playbackRef.current.onSettled?.();
@@ -419,10 +426,10 @@ export default function AlbumCarouselScene({
       cancelAnimationFrame(frame);
       frame = 0;
       notifyReady(false);
+      onFailure();
     }
     renderer.domElement.addEventListener("webglcontextlost", contextLost);
     document.addEventListener("visibilitychange", visibilityChanged);
-    reducedMotion.addEventListener("change", wake);
     const observer = new ResizeObserver(() => {
       resize();
       wake();
@@ -456,7 +463,10 @@ export default function AlbumCarouselScene({
         synchronize();
       })
       .catch(() => {
-        if (!disposed) notifyReady(false);
+        if (!disposed) {
+          notifyReady(false);
+          onFailure();
+        }
       });
     return () => {
       disposed = true;
@@ -464,7 +474,6 @@ export default function AlbumCarouselScene({
       cancelAnimationFrame(frame);
       observer.disconnect();
       document.removeEventListener("visibilitychange", visibilityChanged);
-      reducedMotion.removeEventListener("change", wake);
       renderer.domElement.removeEventListener("webglcontextlost", contextLost);
       for (const [index, record] of records) removeRecord(index, record);
       if (template) disposeTemplate(template);
@@ -473,6 +482,6 @@ export default function AlbumCarouselScene({
       renderer.forceContextLoss();
       renderer.domElement.remove();
     };
-  }, [onReady]);
+  }, [onReady, onFailure]);
   return <div ref={hostRef} className="album-guess-scene" aria-hidden="true" />;
 }

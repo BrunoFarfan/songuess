@@ -163,6 +163,8 @@ export default function AlbumGuessBrowser({
   const [navigatedQuery, setNavigatedQuery] = useState<string | null>(null);
   const [Scene, setScene] = useState<typeof import("./AlbumCarouselScene").default | null>(null);
   const [sceneReady, setSceneReady] = useState(false);
+  const [sceneFailed, setSceneFailed] = useState(false);
+  const handleSceneFailure = useCallback(() => setSceneFailed(true), []);
   const [sceneMode, setSceneMode] = useState<"3d" | "css" | null>(null);
   const [motionSpeed, setMotionSpeed] = useState(1);
   const navigationBusyRef = useRef(false);
@@ -205,21 +207,26 @@ export default function AlbumGuessBrowser({
       .then(({ default: component }) => {
         if (!cancelled) setScene(() => component);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setSceneFailed(true);
+      });
     return () => {
       cancelled = true;
     };
   }, []);
 
   useEffect(() => {
-    if (sceneMode || results.length === 0) return;
+    if (results.length === 0) return;
+    if (sceneFailed) {
+      setSceneMode("css");
+      return;
+    }
+    if (sceneMode) return;
     if (sceneReady) {
       setSceneMode("3d");
       return;
     }
-    const timer = window.setTimeout(() => setSceneMode("css"), 3000);
-    return () => window.clearTimeout(timer);
-  }, [sceneReady, sceneMode, results.length]);
+  }, [sceneReady, sceneFailed, sceneMode, results.length]);
 
   function updateActiveIndex(nextIndex: number) {
     activeIndexRef.current = nextIndex;
@@ -310,14 +317,13 @@ export default function AlbumGuessBrowser({
   );
 
   function applyNavigation(index: number, focus: boolean, fast = false) {
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (navigationBusyRef.current && sceneReady && !reduced) {
+    if (navigationBusyRef.current && sceneReady) {
       queuedNavigationRef.current = { index, focus };
       setMotionSpeed(5);
       return;
     }
     queuedNavigationRef.current = null;
-    navigationBusyRef.current = sceneReady && !reduced && index !== activeIndexRef.current;
+    navigationBusyRef.current = sceneReady && index !== activeIndexRef.current;
     setMotionSpeed(fast ? 5 : 1);
     updateActiveIndex(index);
     if (focus) window.requestAnimationFrame(() => cardRefs.current.get(index)?.focus());
@@ -531,6 +537,7 @@ export default function AlbumGuessBrowser({
             <Scene
               sleeves={sceneSleeves}
               onReady={setSceneReady}
+              onFailure={handleSceneFailure}
               onSettled={finishNavigation}
               motionSpeed={motionSpeed}
             />

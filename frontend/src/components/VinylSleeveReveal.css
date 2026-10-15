@@ -578,21 +578,6 @@
   z-index: 3;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .vinyl-sleeve-reveal__record {
-    transition: none;
-  }
-  .vinyl-sleeve-reveal.is-revealed .vinyl-sleeve-reveal__sleeve,
-  .vinyl-sleeve-reveal.is-revealed .vinyl-sleeve-reveal__spine,
-  .vinyl-sleeve-reveal__caption,
-  .vinyl-sleeve-reveal__confetti span,
-  .vinyl-sleeve-reveal.outcome-correct.is-revealed .vinyl-sleeve-reveal__stage::before,
-  .vinyl-sleeve-reveal.outcome-correct.is-revealed .vinyl-sleeve-reveal__stage::after {
-    animation-duration: 1ms;
-    animation-delay: 0ms;
-  }
-}
-
 /* A reveal starts only after choosing its renderer; late assets cannot replay it. */
 .vinyl-sleeve-reveal.is-reveal-pending .vinyl-sleeve-reveal__sleeve,
 .vinyl-sleeve-reveal.is-reveal-pending .vinyl-sleeve-reveal__spine,
@@ -673,12 +658,6 @@
 .vinyl-sleeve-reveal.outcome-correct.is-settled .vinyl-sleeve-reveal__stage::after {
   animation-delay: 0ms;
 }
-@media (prefers-reduced-motion: reduce) {
-  .vinyl-sleeve-reveal.is-settled .vinyl-sleeve-reveal__caption {
-    animation-duration: 1ms;
-  }
-}
-
 .game-shell .brand-lockup {
   transition:
     opacity 180ms ease,
@@ -719,10 +698,5 @@
   }
   .vinyl-sleeve-reveal__confetti--right {
     left: calc(50% + var(--deck-reveal-half-offset) + var(--deck-sleeve-size) / 2 + 2rem);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .game-shell .brand-lockup {
-    transition: none;
   }
 }
